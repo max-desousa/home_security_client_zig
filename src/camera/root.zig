@@ -17,7 +17,8 @@ pub fn check_if_device_exists(device_name: []const u8) !bool {
 }
 
 pub fn open_device(device_name: [:0]const u8) !c_int {
-    const device = c.open(device_name, c.O_RDWR | c.O_NONBLOCK, @as(c_int, 0));
+    const flags = std.c.O{ .ACCMODE = .RDWR, .NONBLOCK = true };
+    const device = std.c.open(device_name, @bitCast(flags), @as(c_int, 0));
     if (-1 == device) {
         return error.OpenDeviceFailed;
     }
