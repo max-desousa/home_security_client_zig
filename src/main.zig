@@ -8,4 +8,8 @@ pub fn main() !void {
     } else {
         std.debug.print("Camera device not found.\n", .{});
     }
+
+    const device_name: [:0]const u8 = "/dev/video0";
+    const device = try camera.open_device(device_name);
+    defer _ = std.c.close(device);
 }
