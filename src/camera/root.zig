@@ -5,13 +5,22 @@ const c = @cImport({
     @cInclude("sys/ioctl.h");
 });
 
-fn check_if_device_exists(device_name: []const u8) !bool {
-    const file = std.fs.openFileAbsolute(device_name, .{ .mode = .read_only }) catch |err| {
-        if (err == error.FileNotFound) return false;
-        std.debug.print("Error checking device existence: {}\n", .{err});
-        return err;
-    };
-    defer file.close();
+fn check_if_device_exists(device_name: [*:0]const u8) !bool {
+    var stat: std.c.Stat = undefined;
+
+    if (-1 == std.c.stat(device_name, &stat)) {
+        std.debug.print("Failed to get device status.\n", .{});
+        return error.FStatFailed;
+    }
+
+    std.debug.print("Device status obtained.\n", .{});
+
+    if (!std.c.S.ISCHR(stat.mode)) {
+        std.debug.print("{s} is not a character device.\n", .{device_name});
+        return error.NotCharacterDevice;
+    }
+
+    std.debug.print("{s} is a character device.\n", .{device_name});
     return true;
 }
 
@@ -36,23 +45,7 @@ pub fn init() !void {
 
 fn configure_device() !void {
     var cap: c.v4l2_capability = undefined;
-    var fmt: c.v4l2_format = undefined;
-
-    var stat: std.c.Stat = undefined;
-
-    if (-1 == std.c.stat("/dev/video0", &stat)) {
-        std.debug.print("Failed to get device status.\n", .{});
-        return error.FStatFailed;
-    }
-
-    std.debug.print("Device status obtained.\n", .{});
-
-    if (!std.c.S.ISCHR(stat.mode)) {
-        std.debug.print("/dev/video0 is not a character device.\n", .{});
-        return error.NotCharacterDevice;
-    }
-
-    std.debug.print("/dev/video0 is a character device.\n", .{});
+    //var fmt: c.v4l2_format = undefined;
 
     const fd = std.c.open("/dev/video0", std.c.O{ .ACCMODE = .RDWR, .NONBLOCK = true });
     if (fd == -1) {
@@ -82,9 +75,6 @@ fn configure_device() !void {
         return error.NoVideoCaptureSupport;
     }
     std.debug.print("Device supports video capture.\n", .{});
-
-    _ = &cap;
-    _ = &fmt;
 }
 
 fn xioctl(fd: c_int, request: c_ulong, arg: *c.v4l2_capability) c_int {
