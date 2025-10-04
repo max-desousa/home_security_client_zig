@@ -8,4 +8,7 @@ pub fn main() !void {
     } else {
         std.debug.print("Camera device not found.\n", .{});
     }
+    const fd = try camera.openDevice("/dev/video0");
+    defer std.c.close(fd);
+    try camera.setFrameRate(fd, 30);
 }
