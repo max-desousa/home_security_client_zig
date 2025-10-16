@@ -44,8 +44,7 @@ pub fn init() !void {
 }
 
 fn configure_device() !void {
-    var cap: c.v4l2_capability = undefined;
-    //var fmt: c.v4l2_format = undefined;
+    var cap: c.v4l2_capability = std.mem.zeroes(c.v4l2_capability);
 
     const fd = std.c.open("/dev/video0", std.c.O{ .ACCMODE = .RDWR, .NONBLOCK = true });
     if (fd == -1) {
@@ -75,9 +74,32 @@ fn configure_device() !void {
         return error.NoVideoCaptureSupport;
     }
     std.debug.print("Device supports video capture.\n", .{});
+
+    std.debug.print("Device: {s}\n", .{cap.card});
+    std.debug.print("Driver: {s}\n", .{cap.driver});
+    std.debug.print("Bus Info: {s}\n", .{cap.bus_info});
+
+    var fmt: c.v4l2_format = std.mem.zeroes(c.v4l2_format);
+    fmt.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    fmt.fmt.pix.width = 640;
+    fmt.fmt.pix.height = 480;
+    fmt.fmt.pix.pixelformat = c.V4L2_PIX_FMT_YUYV;
+
+    if (-1 == xioctl(fd, c.VIDIOC_S_FMT, &fmt)) {
+        std.debug.print("Failed to set pixel format.\n", .{});
+        return error.SetFormatFailed;
+    }
+
+    std.debug.print("Pixel format set successfully.\n", .{});
+    std.debug.print("Configured format:\n", .{});
+    std.debug.print("\tWidth: {d}\n", .{fmt.fmt.pix.width});
+    std.debug.print("\tHeight: {d}\n", .{fmt.fmt.pix.height});
+    std.debug.print("\tPixel Format: {x}\n", .{fmt.fmt.pix.pixelformat});
 }
 
-fn xioctl(fd: c_int, request: c_ulong, arg: *c.v4l2_capability) c_int {
+// helper function suggested by ai due to ioctl being interruptible
+//fn xioctl(fd: c_int, request: c_ulong, arg: *c.v4l2_capability) c_int {
+fn xioctl(fd: c_int, request: c_ulong, arg: *anyopaque) c_int {
     var r: c_int = -1;
     r = c.ioctl(fd, request, arg);
     while (-1 == r and std.c._errno().* == c.EINTR) {
