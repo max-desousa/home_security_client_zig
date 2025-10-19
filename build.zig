@@ -4,8 +4,14 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const mod_camera = b.addModule("zig_home_security_client", .{
+    const mod_camera = b.createModule(.{
         .root_source_file = b.path("src/camera/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const mod_cores = b.createModule(.{
+        .root_source_file = b.path("src/core_layouts/root.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -18,6 +24,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .imports = &.{
                 .{ .name = "camera", .module = mod_camera },
+                .{ .name = "core_layouts", .module = mod_cores },
             },
         }),
     });
