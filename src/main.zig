@@ -1,11 +1,8 @@
 const std = @import("std");
+const config = @import("config");
 const camera = @import("camera");
 
 pub fn main() !void {
-    const device_exists = try camera.check_if_device_exists("/dev/video0");
-    if (device_exists) {
-        std.debug.print("Camera device found!\n", .{});
-    } else {
-        std.debug.print("Camera device not found.\n", .{});
-    }
+    std.debug.print("Number of cores: {d}\n", .{config.number_of_cores});
+    try camera.init();
 }
