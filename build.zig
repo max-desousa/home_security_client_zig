@@ -24,6 +24,13 @@ pub fn build(b: *std.Build) void {
 
     exe.linkLibC();
 
+    const options = b.addOptions();
+    const number_of_cores = b.option(usize, "number_of_cores", "Number of CPU cores to use for building") orelse std.Thread.getCpuCount() catch 1;
+
+    options.addOption(usize, "number_of_cores", number_of_cores);
+
+    exe.root_module.addOptions("config", options);
+
     b.installArtifact(exe);
 
     const run_step = b.step("run", "Run the app");
