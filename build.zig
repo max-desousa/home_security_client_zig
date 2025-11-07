@@ -4,7 +4,6 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-
     const mod_file_system = b.createModule(.{
         .root_source_file = b.path("src/file_system/root.zig"),
         .target = target,
@@ -17,7 +16,17 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "file_system", .module = mod_file_system },
-        }
+        },
+    });
+
+    const mod_system_ops = b.createModule(.{
+        .root_source_file = b.path("src/system_ops/root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "camera", .module = mod_camera },
+            .{ .name = "file_system", .module = mod_file_system },
+        },
     });
 
     const mod_cores = b.createModule(.{
@@ -26,7 +35,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "camera", .module = mod_camera },
-        }
+            .{ .name = "system_ops", .module = mod_system_ops },
+        },
     });
 
     const exe = b.addExecutable(.{

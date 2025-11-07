@@ -6,6 +6,61 @@ const c = @cImport({
     @cInclude("sys/ioctl.h");
 });
 
+//##############################################################################
+//                     Public - Data Structures and Enums
+//##############################################################################
+
+const CameraCapabilities = struct {
+    VIDEO_CAPTURE: bool,
+};
+
+//##############################################################################
+//                             Public - Functions
+//##############################################################################
+
+pub fn init() !void {
+    const checker = file_system.check_if_config_file_exists();
+    if (checker) {
+        std.debug.print("Config file exists...\n", .{});
+    } else {
+        std.debug.print("Config file does NOT exist...\n", .{});
+    }
+    try init_with_force();
+}
+
+pub fn init_with_force() !void {
+    const device = try check_if_device_exists("/dev/video0");
+    if (device) {
+        std.debug.print("Camera device found.\n", .{});
+    } else {
+        return error.DeviceNotFound;
+    }
+    try configure_device();
+}
+
+pub fn get_capabilities() !void {
+    const device_name: []const u8 = "/dev/video0";
+    const device = try open_device(device_name);
+    _ = device;
+
+    const fmtdesc: c.struct_v4l2_fmtdesc = std.mem.zeroes(c.struct_v4l2_fmtdesc);
+    std.debug.print("Supported Pixel Formats:\n", .{});
+    fmtdesc.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+}
+
+//##############################################################################
+//                    Private - Data Structures and Enums
+//##############################################################################
+
+//##############################################################################
+//                            Private - Functions
+//##############################################################################
+
+//------------------------------------------------------------------------------
+// Function: check_if_device_exists
+//
+// Description:
+//------------------------------------------------------------------------------
 fn check_if_device_exists(device_name: [*:0]const u8) !bool {
     var stat: std.c.Stat = undefined;
 
@@ -25,6 +80,11 @@ fn check_if_device_exists(device_name: [*:0]const u8) !bool {
     return true;
 }
 
+//------------------------------------------------------------------------------
+// Function:
+//
+// Description:
+//------------------------------------------------------------------------------
 fn open_device(device_name: [:0]const u8) !c_int {
     const flags = std.c.O{ .ACCMODE = .RDWR, .NONBLOCK = true };
     const device = std.c.open(device_name, flags, @as(c_int, 0));
@@ -34,27 +94,11 @@ fn open_device(device_name: [:0]const u8) !c_int {
     return device;
 }
 
-pub fn init() !void {
-    const checker = file_system.check_if_config_file_exists();
-    if (checker) {
-        std.debug.print("Config file exists...\n", .{});
-    }
-    else {
-        std.debug.print("Config file does NOT exist...\n", .{});
-    }
-    try init_with_force();
-}
-
-pub fn init_with_force() !void {
-    const device = try check_if_device_exists("/dev/video0");
-    if (device) {
-        std.debug.print("Camera device found.\n", .{});
-    } else {
-        return error.DeviceNotFound;
-    }
-    try configure_device();
-}
-
+//------------------------------------------------------------------------------
+// Function:
+//
+// Description:
+//------------------------------------------------------------------------------
 fn configure_device() !void {
     var cap: c.v4l2_capability = std.mem.zeroes(c.v4l2_capability);
 
@@ -109,8 +153,11 @@ fn configure_device() !void {
     std.debug.print("\tPixel Format: {x}\n", .{fmt.fmt.pix.pixelformat});
 }
 
-// helper function suggested by ai due to ioctl being interruptible
-//fn xioctl(fd: c_int, request: c_ulong, arg: *c.v4l2_capability) c_int {
+//------------------------------------------------------------------------------
+// Function:
+//
+// Description: helper function suggested by ai due to ioctl being interruptible
+//------------------------------------------------------------------------------
 fn xioctl(fd: c_int, request: c_ulong, arg: *anyopaque) c_int {
     var r: c_int = -1;
     r = c.ioctl(fd, request, arg);

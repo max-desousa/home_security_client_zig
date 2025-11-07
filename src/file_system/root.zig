@@ -5,8 +5,9 @@ pub fn check_if_config_file_exists() bool {
 
     if (check_if_file_exists) |_| {
         return true;
-    }
-    else |_| {
+    } else |_| {
         return false;
     }
 }
+
+pub fn get_home_sec_config() !void {}
