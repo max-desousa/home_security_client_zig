@@ -1,4 +1,5 @@
 const std = @import("std");
+const file_system = @import("file_system");
 const c = @cImport({
     @cInclude("linux/videodev2.h");
     @cInclude("errno.h");
@@ -34,6 +35,17 @@ fn open_device(device_name: [:0]const u8) !c_int {
 }
 
 pub fn init() !void {
+    const checker = file_system.check_if_config_file_exists();
+    if (checker) {
+        std.debug.print("Config file exists...\n", .{});
+    }
+    else {
+        std.debug.print("Config file does NOT exist...\n", .{});
+    }
+    try init_with_force();
+}
+
+pub fn init_with_force() !void {
     const device = try check_if_device_exists("/dev/video0");
     if (device) {
         std.debug.print("Camera device found.\n", .{});
