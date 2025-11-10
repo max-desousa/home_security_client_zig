@@ -33,14 +33,16 @@ fn open_device(device_name: [:0]const u8) !c_int {
     return device;
 }
 
-pub fn init() !void {
+pub fn init() !bool {
     const device = try check_if_device_exists("/dev/video0");
     if (device) {
         std.debug.print("Camera device found.\n", .{});
     } else {
-        return error.DeviceNotFound;
+        std.debug.print("**Problem** -- Camera device not found.\n", .{});
+        return false;
     }
     try configure_device();
+    return true;
 }
 
 fn configure_device() !void {

@@ -4,6 +4,12 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const mod_config = b.createModule(.{
+        .root_source_file = b.path("src/config_file/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const mod_camera = b.createModule(.{
         .root_source_file = b.path("src/camera/root.zig"),
         .target = target,
@@ -14,6 +20,9 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/core_layouts/root.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{
+            .{ .name = "config", .module = mod_config },
+        },
     });
 
     const exe = b.addExecutable(.{
