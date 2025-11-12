@@ -6,25 +6,36 @@ const c = @cImport({
     @cInclude("linux/videodev2.h");
     @cInclude("errno.h");
     @cInclude("sys/ioctl.h");
+    @cInclude("string.h");
 });
+
+pub const buffer = struct {
+    start: *anyopaque,
+    length: usize,
+};
 
 file_descriptor: ?c_int,
 device_name: ?[*:0]const u8,
+allocator: std.mem.Allocator,
+buffers: []buffer = undefined,
 
-pub fn init(dev_name: [*:0]const u8) !Camera {
+pub fn init(dev_name: [*:0]const u8, allocator: std.mem.Allocator) !Camera {
     var camera: Camera = .{
         .file_descriptor = null,
         .device_name = dev_name,
+        .allocator = allocator,
     };
 
     if (!check_if_device_exists(camera)) {
         return error.CameraDeviceNotFound;
     }
+
+    try open_device(&camera);
+    errdefer camera.deinit();
+
     if (!device_supports_video(camera)) {
         return error.DeviceDoesNotSupportVideo;
     }
-    try open_device(&camera);
-    errdefer camera.deinit();
 
     try configure_device(camera);
 
@@ -35,6 +46,10 @@ pub fn deinit(self: *Camera) void {
     if (self.file_descriptor) |fd| {
         _ = std.c.close(fd);
         self.file_descriptor = null;
+    }
+
+    if (0 < self.buffers.len) {
+        self.allocator.free(self.buffers);
     }
 }
 
@@ -64,7 +79,27 @@ fn check_if_device_exists(self: Camera) bool {
 }
 
 fn device_supports_video(self: Camera) bool {
-    _ = &self;
+    if (self.file_descriptor) |fd| {
+        var cap: c.struct_v4l2_capability = std.mem.zeroes(c.struct_v4l2_capability);
+
+        if (-1 == xioctl(fd, c.VIDIOC_QUERYCAP, &cap)) {
+            std.debug.print("Failed to query device capabilities.\n", .{});
+            return false;
+        }
+
+        if (0 == (cap.capabilities & c.V4L2_CAP_VIDEO_CAPTURE)) {
+            std.debug.print("Device does not support video capture.\n", .{});
+            return false;
+        }
+
+        if (0 == (cap.capabilities & c.V4L2_CAP_STREAMING)) {
+            std.debug.print("Device does not support streaming I/O (our default method for handling cameras... at least for now.\n", .{});
+            return false;
+        }
+    } else {
+        return false;
+    }
+
     return true;
 }
 
@@ -88,36 +123,35 @@ fn configure_device(self: Camera) !void {
     {
         return error.NullValuesInDeviceObject;
     }
-
-    var cap: c.v4l2_capability = std.mem.zeroes(c.v4l2_capability);
-
-    std.debug.print("Device opened successfully.\n", .{});
-
-    if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_QUERYCAP, &cap)) {
-        std.debug.print("Failed to query device capabilities.\n", .{});
-
-        if (c.EINVAL == std.c._errno().*) {
-            std.debug.print("Not a V4L2 device.\n", .{});
-            return error.NotV4L2Device;
-        } else {
-            std.debug.print("VIDIOC_QUERYCAP error: {}\n", .{std.c._errno().*});
-            return error.QueryCapFailed;
-        }
-        return error.QueryCapFailed;
-    }
-    std.debug.print("Device capabilities queried successfully.\n", .{});
-
-    if ((cap.capabilities & c.V4L2_CAP_VIDEO_CAPTURE) == 0) {
-        std.debug.print("Device does not support video capture.\n", .{});
-        return error.NoVideoCaptureSupport;
-    }
-    std.debug.print("Device supports video capture.\n", .{});
-
-    std.debug.print("Device: {s}\n", .{cap.card});
-    std.debug.print("Driver: {s}\n", .{cap.driver});
-    std.debug.print("Bus Info: {s}\n", .{cap.bus_info});
-
+    var cropcap: c.struct_v4l2_cropcap = std.mem.zeroes(c.struct_v4l2_cropcap);
+    var crop: c.struct_v4l2_crop = std.mem.zeroes(c.struct_v4l2_crop);
     var fmt: c.v4l2_format = std.mem.zeroes(c.v4l2_format);
+
+    // Setting the crop of the sensor to try and ensure better imaging.
+    cropcap.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    if (0 == xioctl(self.file_descriptor.?, c.VIDIOC_CROPCAP, &cropcap)) {
+        crop.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        crop.c = cropcap.defrect;
+
+        if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_S_CROP, &crop)) {
+            const c_errno = std.c._errno().*;
+
+            if ((c.EINVAL == c_errno) or
+                (c.ENOTTY == c_errno) or
+                (c.ENODEV == c_errno) or
+                (c.EPERM == c_errno))
+            {
+                std.debug.print("Cropping not supported on this device.\n", .{});
+            } else {
+                std.debug.print("Failed to set crop rectangle.\n", .{});
+            }
+        } else {
+            std.debug.print("Crop rectangle set successfully.\n", .{});
+        }
+    } else {
+        std.debug.print("Failed to get crop capabilities.\n", .{});
+    }
+
     fmt.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
     fmt.fmt.pix.width = 640;
     fmt.fmt.pix.height = 480;
@@ -133,10 +167,36 @@ fn configure_device(self: Camera) !void {
     std.debug.print("\tWidth: {d}\n", .{fmt.fmt.pix.width});
     std.debug.print("\tHeight: {d}\n", .{fmt.fmt.pix.height});
     std.debug.print("\tPixel Format: {x}\n", .{fmt.fmt.pix.pixelformat});
+
+    try self.initialize_mmap();
 }
 
+fn initialize_mmap(self: Camera) !void {
+    if (null == self.file_descriptor) {
+        return error.BadStructInstance;
+    }
+
+    var req: c.struct_v4l2_requestbuffers = std.mem.zeroes(c.struct_v4l2_requestbuffers);
+
+    req.count = 4;
+    req.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    req.memory = c.V4L2_MEMORY_MMAP;
+
+    if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_REQBUFS, &req)) {
+        std.debug.print("Failed to request buffer allocation via mmap.\n", .{});
+        return error.RequestBuffersFailed;
+    }
+
+    if (2 > req.count) {
+        std.debug.print("Insufficient buffer memory on device.\n", .{});
+        return error.InsufficientBufferMemory;
+    }
+}
+
+//==============================================================================
 // helper function suggested by ai due to ioctl being interruptible
 //fn xioctl(fd: c_int, request: c_ulong, arg: *c.v4l2_capability) c_int {
+//==============================================================================
 fn xioctl(fd: c_int, request: c_ulong, arg: *anyopaque) c_int {
     var r: c_int = -1;
     r = c.ioctl(fd, request, arg);
