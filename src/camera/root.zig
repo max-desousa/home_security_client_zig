@@ -1,3 +1,5 @@
+const Camera = @This();
+
 const std = @import("std");
 const file_system = @import("file_system");
 const c = @cImport({
@@ -6,68 +8,92 @@ const c = @cImport({
     @cInclude("sys/ioctl.h");
 });
 
-fn check_if_device_exists(device_name: [*:0]const u8) !bool {
-    var stat: std.c.Stat = undefined;
+file_descriptor: ?c_int,
+device_name: ?[*:0]const u8,
 
-    if (-1 == std.c.stat(device_name, &stat)) {
-        std.debug.print("Failed to get device status.\n", .{});
-        return error.FStatFailed;
+pub fn init(dev_name: [*:0]const u8) !Camera {
+    var camera: Camera = .{
+        .file_descriptor = null,
+        .device_name = dev_name,
+    };
+
+    if (!check_if_device_exists(camera)) {
+        return error.CameraDeviceNotFound;
     }
-
-    std.debug.print("Device status obtained.\n", .{});
-
-    if (!std.c.S.ISCHR(stat.mode)) {
-        std.debug.print("{s} is not a character device.\n", .{device_name});
-        return error.NotCharacterDevice;
+    if (!device_supports_video(camera)) {
+        return error.DeviceDoesNotSupportVideo;
     }
+    try open_device(&camera);
+    errdefer camera.deinit();
 
-    std.debug.print("{s} is a character device.\n", .{device_name});
+    try configure_device(camera);
+
+    return camera;
+}
+
+pub fn deinit(self: *Camera) void {
+    if (self.file_descriptor) |fd| {
+        _ = std.c.close(fd);
+        self.file_descriptor = null;
+    }
+}
+
+fn check_if_device_exists(self: Camera) bool {
+    if (self.device_name) |name| {
+        var stat: std.c.Stat = undefined;
+
+        if (-1 == std.c.stat(name, &stat)) {
+            std.debug.print("Failed to get device status.\n", .{});
+            return false;
+            //return error.FStatFailed;
+        }
+
+        std.debug.print("Device status obtained.\n", .{});
+
+        if (!std.c.S.ISCHR(stat.mode)) {
+            std.debug.print("{s} is not a character device.\n", .{name});
+            return false;
+            //return error.NotCharacterDevice;
+        }
+
+        std.debug.print("{s} is a character device.\n", .{name});
+        return true;
+    } else {
+        return false;
+    }
+}
+
+fn device_supports_video(self: Camera) bool {
+    _ = &self;
     return true;
 }
 
-fn open_device(device_name: [:0]const u8) !c_int {
-    const flags = std.c.O{ .ACCMODE = .RDWR, .NONBLOCK = true };
-    const device = std.c.open(device_name, flags, @as(c_int, 0));
-    if (-1 == device) {
-        return error.OpenDeviceFailed;
-    }
-    return device;
-}
-
-pub fn init() !void {
-    const checker = file_system.check_if_config_file_exists();
-    if (checker) {
-        std.debug.print("Config file exists...\n", .{});
-    }
-    else {
-        std.debug.print("Config file does NOT exist...\n", .{});
-    }
-    try init_with_force();
-}
-
-pub fn init_with_force() !void {
-    const device = try check_if_device_exists("/dev/video0");
-    if (device) {
-        std.debug.print("Camera device found.\n", .{});
+fn open_device(self: *Camera) !void {
+    var device: c_int = -1;
+    if (self.device_name) |name| {
+        const flags = std.c.O{ .ACCMODE = .RDWR, .NONBLOCK = true };
+        device = std.c.open(name, flags, @as(c_int, 0));
+        if (-1 == device) {
+            return error.OpenDeviceFailed;
+        }
     } else {
-        return error.DeviceNotFound;
-    }
-    try configure_device();
-}
-
-fn configure_device() !void {
-    var cap: c.v4l2_capability = std.mem.zeroes(c.v4l2_capability);
-
-    const fd = std.c.open("/dev/video0", std.c.O{ .ACCMODE = .RDWR, .NONBLOCK = true });
-    if (fd == -1) {
-        std.debug.print("Failed to open device.\n", .{});
         return error.OpenDeviceFailed;
     }
-    defer _ = std.c.close(fd);
+    self.file_descriptor = device;
+}
+
+fn configure_device(self: Camera) !void {
+    if ((null == self.file_descriptor) or
+        (null == self.device_name))
+    {
+        return error.NullValuesInDeviceObject;
+    }
+
+    var cap: c.v4l2_capability = std.mem.zeroes(c.v4l2_capability);
 
     std.debug.print("Device opened successfully.\n", .{});
 
-    if (-1 == xioctl(fd, c.VIDIOC_QUERYCAP, &cap)) {
+    if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_QUERYCAP, &cap)) {
         std.debug.print("Failed to query device capabilities.\n", .{});
 
         if (c.EINVAL == std.c._errno().*) {
@@ -97,7 +123,7 @@ fn configure_device() !void {
     fmt.fmt.pix.height = 480;
     fmt.fmt.pix.pixelformat = c.V4L2_PIX_FMT_YUYV;
 
-    if (-1 == xioctl(fd, c.VIDIOC_S_FMT, &fmt)) {
+    if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_S_FMT, &fmt)) {
         std.debug.print("Failed to set pixel format.\n", .{});
         return error.SetFormatFailed;
     }
