@@ -18,6 +18,7 @@ file_descriptor: ?c_int,
 device_name: ?[*:0]const u8,
 allocator: std.mem.Allocator,
 buffers: []buffer = undefined,
+n_buffers: u8 = undefined,
 
 pub fn init(dev_name: [*:0]const u8, allocator: std.mem.Allocator) !Camera {
     var camera: Camera = .{
@@ -37,7 +38,7 @@ pub fn init(dev_name: [*:0]const u8, allocator: std.mem.Allocator) !Camera {
         return error.DeviceDoesNotSupportVideo;
     }
 
-    try configure_device(camera);
+    try configure_device(&camera);
 
     return camera;
 }
@@ -117,7 +118,7 @@ fn open_device(self: *Camera) !void {
     self.file_descriptor = device;
 }
 
-fn configure_device(self: Camera) !void {
+fn configure_device(self: *Camera) !void {
     if ((null == self.file_descriptor) or
         (null == self.device_name))
     {
@@ -171,7 +172,7 @@ fn configure_device(self: Camera) !void {
     try self.initialize_mmap();
 }
 
-fn initialize_mmap(self: Camera) !void {
+fn initialize_mmap(self: *Camera) !void {
     if (null == self.file_descriptor) {
         return error.BadStructInstance;
     }
@@ -190,6 +191,39 @@ fn initialize_mmap(self: Camera) !void {
     if (2 > req.count) {
         std.debug.print("Insufficient buffer memory on device.\n", .{});
         return error.InsufficientBufferMemory;
+    }
+
+    self.buffers = try self.allocator.alloc(buffer, req.count);
+    var buf_number: u8 = 0;
+
+    for (self.buffers) |b| {
+        var buf: c.struct_v4l2_buffer = std.mem.zeroes(c.struct_v4l2_buffer);
+
+        buf.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        buf.memory = c.V4L2_MEMORY_MMAP;
+        buf.index = buf_number;
+
+        if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_QUERYBUF, &buf)) {
+            std.debug.print("Failed to query buffer info.\n", .{});
+            return error.QueryBufferFailed;
+        }
+
+        self.buffers[buf_number].length = b.length;
+        self.buffers[buf_number].start = std.c.mmap(
+            null,
+            buf.length,
+            std.c.PROT_READ | std.c.PROT_WRITE,
+            std.c.MAP_SHARED,
+            self.file_descriptor.?,
+            buf.m.offset,
+        );
+
+        if (std.c.MAP_FAILED == self.buffers[buf_number].start) {
+            std.debug.print("Failed to map buffer to user space.\n", .{});
+            return error.MmapFailed;
+        }
+
+        buf_number += 1;
     }
 }
 
