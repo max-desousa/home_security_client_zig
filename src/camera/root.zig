@@ -194,36 +194,36 @@ fn initialize_mmap(self: *Camera) !void {
     }
 
     self.buffers = try self.allocator.alloc(buffer, req.count);
-    var buf_number: u8 = 0;
+    var n_buffers: u8 = 0;
 
     for (self.buffers) |b| {
         var buf: c.struct_v4l2_buffer = std.mem.zeroes(c.struct_v4l2_buffer);
 
         buf.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
         buf.memory = c.V4L2_MEMORY_MMAP;
-        buf.index = buf_number;
+        buf.index = n_buffers;
 
         if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_QUERYBUF, &buf)) {
             std.debug.print("Failed to query buffer info.\n", .{});
             return error.QueryBufferFailed;
         }
 
-        self.buffers[buf_number].length = b.length;
-        self.buffers[buf_number].start = std.c.mmap(
+        self.buffers[n_buffers].length = b.length;
+        self.buffers[n_buffers].start = std.c.mmap(
             null,
             buf.length,
-            std.c.PROT_READ | std.c.PROT_WRITE,
-            std.c.MAP_SHARED,
+            std.c.PROT.READ | std.c.PROT.WRITE,
+            .{ .TYPE = .SHARED },
             self.file_descriptor.?,
             buf.m.offset,
         );
 
-        if (std.c.MAP_FAILED == self.buffers[buf_number].start) {
+        if (std.c.MAP_FAILED == self.buffers[n_buffers].start) {
             std.debug.print("Failed to map buffer to user space.\n", .{});
             return error.MmapFailed;
         }
 
-        buf_number += 1;
+        n_buffers += 1;
     }
 }
 
