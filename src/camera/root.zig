@@ -227,6 +227,66 @@ fn initialize_mmap(self: *Camera) !void {
     }
 }
 
+pub fn start_capturing(self: Camera) !void {
+    if ((null == self.file_descriptor) or
+        (2 > self.buffers.len))
+    {
+        return error.BadStructInstance;
+    }
+
+    for (0..self.buffers.len) |index| {
+        var buf: c.struct_v4l2_buffer = std.mem.zeroes(c.struct_v4l2_buffer);
+
+        buf.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        buf.memory = c.V4L2_MEMORY_MMAP;
+        buf.index = @intCast(index);
+
+        if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_QBUF, &buf)) {
+            std.debug.print("Failed to queue buffer {d}.\n", .{index});
+            return error.QueueBufferFailed;
+        }
+    }
+
+    var vtype: c.enum_v4l2_buf_type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_STREAMON, &vtype)) {
+        std.debug.print("Failed to start video streaming.\n", .{});
+        return error.StartStreamingFailed;
+    }
+}
+
+pub fn capture_frames_infinitely(self: Camera) !void {
+    while (true) {
+        try self.capture_single_frame();
+    }
+}
+
+pub fn capture_single_frame(self: Camera) !void {
+    if (null == self.file_descriptor) {
+        return error.BadStructInstance;
+    }
+
+    var buf: c.struct_v4l2_buffer = std.mem.zeroes(c.struct_v4l2_buffer);
+    buf.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    buf.memory = c.V4L2_MEMORY_MMAP;
+
+    if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_DQBUF, &buf)) {
+        if (c.EAGAIN == std.c._errno().*) {
+            //std.debug.print("No frame available yet, try again.\n", .{});
+            return;
+        }
+        std.debug.print("Failed to dequeue buffer.\n", .{});
+        return error.DequeueBufferFailed;
+    }
+    std.debug.print("Captured frame in buffer index {d}.\n", .{buf.index});
+
+    std.debug.print("Processing frame data...\n", .{});
+
+    if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_QBUF, &buf)) {
+        std.debug.print("Failed to re-queue buffer.\n", .{});
+        return error.RequeueBufferFailed;
+    }
+}
+
 //==============================================================================
 // helper function suggested by ai due to ioctl being interruptible
 //fn xioctl(fd: c_int, request: c_ulong, arg: *c.v4l2_capability) c_int {

@@ -7,5 +7,9 @@ pub fn perfect_core_layout() !void {
     const gpa = std.heap.c_allocator;
 
     var cam = try camera.init("/dev/video0", gpa);
-    _ = &cam;
+    defer cam.deinit();
+
+    std.debug.print("Number of buffers in camera: {d}\n", .{cam.buffers.len});
+    try cam.start_capturing();
+    try cam.capture_frames_infinitely();
 }
