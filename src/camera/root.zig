@@ -1,103 +1,164 @@
+const Camera = @This();
+
 const std = @import("std");
 const file_system = @import("file_system");
 const c = @cImport({
     @cInclude("linux/videodev2.h");
     @cInclude("errno.h");
     @cInclude("sys/ioctl.h");
+    @cInclude("string.h");
 });
 
-fn check_if_device_exists(device_name: [*:0]const u8) !bool {
-    var stat: std.c.Stat = undefined;
+pub const buffer = struct {
+    start: *anyopaque,
+    length: usize,
+};
 
-    if (-1 == std.c.stat(device_name, &stat)) {
-        std.debug.print("Failed to get device status.\n", .{});
-        return error.FStatFailed;
+file_descriptor: ?c_int,
+device_name: ?[*:0]const u8,
+allocator: std.mem.Allocator,
+buffers: []buffer = undefined,
+n_buffers: u8 = undefined,
+
+pub fn init(dev_name: [*:0]const u8, allocator: std.mem.Allocator) !Camera {
+    var camera: Camera = .{
+        .file_descriptor = null,
+        .device_name = dev_name,
+        .allocator = allocator,
+    };
+
+    if (!check_if_device_exists(camera)) {
+        return error.CameraDeviceNotFound;
     }
 
-    std.debug.print("Device status obtained.\n", .{});
+    try open_device(&camera);
+    errdefer camera.deinit();
 
-    if (!std.c.S.ISCHR(stat.mode)) {
-        std.debug.print("{s} is not a character device.\n", .{device_name});
-        return error.NotCharacterDevice;
+    if (!device_supports_video(camera)) {
+        return error.DeviceDoesNotSupportVideo;
     }
 
-    std.debug.print("{s} is a character device.\n", .{device_name});
+    try configure_device(&camera);
+
+    return camera;
+}
+
+pub fn deinit(self: *Camera) void {
+    if (self.file_descriptor) |fd| {
+        _ = std.c.close(fd);
+        self.file_descriptor = null;
+    }
+
+    if (0 < self.buffers.len) {
+        self.allocator.free(self.buffers);
+    }
+}
+
+fn check_if_device_exists(self: Camera) bool {
+    if (self.device_name) |name| {
+        var stat: std.c.Stat = undefined;
+
+        if (-1 == std.c.stat(name, &stat)) {
+            std.debug.print("Failed to get device status.\n", .{});
+            return false;
+            //return error.FStatFailed;
+        }
+
+        std.debug.print("Device status obtained.\n", .{});
+
+        if (!std.c.S.ISCHR(stat.mode)) {
+            std.debug.print("{s} is not a character device.\n", .{name});
+            return false;
+            //return error.NotCharacterDevice;
+        }
+
+        std.debug.print("{s} is a character device.\n", .{name});
+        return true;
+    } else {
+        return false;
+    }
+}
+
+fn device_supports_video(self: Camera) bool {
+    if (self.file_descriptor) |fd| {
+        var cap: c.struct_v4l2_capability = std.mem.zeroes(c.struct_v4l2_capability);
+
+        if (-1 == xioctl(fd, c.VIDIOC_QUERYCAP, &cap)) {
+            std.debug.print("Failed to query device capabilities.\n", .{});
+            return false;
+        }
+
+        if (0 == (cap.capabilities & c.V4L2_CAP_VIDEO_CAPTURE)) {
+            std.debug.print("Device does not support video capture.\n", .{});
+            return false;
+        }
+
+        if (0 == (cap.capabilities & c.V4L2_CAP_STREAMING)) {
+            std.debug.print("Device does not support streaming I/O (our default method for handling cameras... at least for now.\n", .{});
+            return false;
+        }
+    } else {
+        return false;
+    }
+
     return true;
 }
 
-fn open_device(device_name: [:0]const u8) !c_int {
-    const flags = std.c.O{ .ACCMODE = .RDWR, .NONBLOCK = true };
-    const device = std.c.open(device_name, flags, @as(c_int, 0));
-    if (-1 == device) {
-        return error.OpenDeviceFailed;
-    }
-    return device;
-}
-
-pub fn init() !void {
-    const checker = file_system.check_if_config_file_exists();
-    if (checker) {
-        std.debug.print("Config file exists...\n", .{});
-    }
-    else {
-        std.debug.print("Config file does NOT exist...\n", .{});
-    }
-    try init_with_force();
-}
-
-pub fn init_with_force() !void {
-    const device = try check_if_device_exists("/dev/video0");
-    if (device) {
-        std.debug.print("Camera device found.\n", .{});
-    } else {
-        return error.DeviceNotFound;
-    }
-    try configure_device();
-}
-
-fn configure_device() !void {
-    var cap: c.v4l2_capability = std.mem.zeroes(c.v4l2_capability);
-
-    const fd = std.c.open("/dev/video0", std.c.O{ .ACCMODE = .RDWR, .NONBLOCK = true });
-    if (fd == -1) {
-        std.debug.print("Failed to open device.\n", .{});
-        return error.OpenDeviceFailed;
-    }
-    defer _ = std.c.close(fd);
-
-    std.debug.print("Device opened successfully.\n", .{});
-
-    if (-1 == xioctl(fd, c.VIDIOC_QUERYCAP, &cap)) {
-        std.debug.print("Failed to query device capabilities.\n", .{});
-
-        if (c.EINVAL == std.c._errno().*) {
-            std.debug.print("Not a V4L2 device.\n", .{});
-            return error.NotV4L2Device;
-        } else {
-            std.debug.print("VIDIOC_QUERYCAP error: {}\n", .{std.c._errno().*});
-            return error.QueryCapFailed;
+fn open_device(self: *Camera) !void {
+    var device: c_int = -1;
+    if (self.device_name) |name| {
+        const flags = std.c.O{ .ACCMODE = .RDWR, .NONBLOCK = true };
+        device = std.c.open(name, flags, @as(c_int, 0));
+        if (-1 == device) {
+            return error.OpenDeviceFailed;
         }
-        return error.QueryCapFailed;
+    } else {
+        return error.OpenDeviceFailed;
     }
-    std.debug.print("Device capabilities queried successfully.\n", .{});
+    self.file_descriptor = device;
+}
 
-    if ((cap.capabilities & c.V4L2_CAP_VIDEO_CAPTURE) == 0) {
-        std.debug.print("Device does not support video capture.\n", .{});
-        return error.NoVideoCaptureSupport;
+fn configure_device(self: *Camera) !void {
+    if ((null == self.file_descriptor) or
+        (null == self.device_name))
+    {
+        return error.NullValuesInDeviceObject;
     }
-    std.debug.print("Device supports video capture.\n", .{});
-
-    std.debug.print("Device: {s}\n", .{cap.card});
-    std.debug.print("Driver: {s}\n", .{cap.driver});
-    std.debug.print("Bus Info: {s}\n", .{cap.bus_info});
-
+    var cropcap: c.struct_v4l2_cropcap = std.mem.zeroes(c.struct_v4l2_cropcap);
+    var crop: c.struct_v4l2_crop = std.mem.zeroes(c.struct_v4l2_crop);
     var fmt: c.v4l2_format = std.mem.zeroes(c.v4l2_format);
+
+    // Setting the crop of the sensor to try and ensure better imaging.
+    cropcap.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    if (0 == xioctl(self.file_descriptor.?, c.VIDIOC_CROPCAP, &cropcap)) {
+        crop.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        crop.c = cropcap.defrect;
+
+        if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_S_CROP, &crop)) {
+            const c_errno = std.c._errno().*;
+
+            if ((c.EINVAL == c_errno) or
+                (c.ENOTTY == c_errno) or
+                (c.ENODEV == c_errno) or
+                (c.EPERM == c_errno))
+            {
+                std.debug.print("Cropping not supported on this device.\n", .{});
+            } else {
+                std.debug.print("Failed to set crop rectangle.\n", .{});
+            }
+        } else {
+            std.debug.print("Crop rectangle set successfully.\n", .{});
+        }
+    } else {
+        std.debug.print("Failed to get crop capabilities.\n", .{});
+    }
+
     fmt.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
     fmt.fmt.pix.width = 640;
     fmt.fmt.pix.height = 480;
     fmt.fmt.pix.pixelformat = c.V4L2_PIX_FMT_YUYV;
 
-    if (-1 == xioctl(fd, c.VIDIOC_S_FMT, &fmt)) {
+    if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_S_FMT, &fmt)) {
         std.debug.print("Failed to set pixel format.\n", .{});
         return error.SetFormatFailed;
     }
@@ -107,10 +168,129 @@ fn configure_device() !void {
     std.debug.print("\tWidth: {d}\n", .{fmt.fmt.pix.width});
     std.debug.print("\tHeight: {d}\n", .{fmt.fmt.pix.height});
     std.debug.print("\tPixel Format: {x}\n", .{fmt.fmt.pix.pixelformat});
+
+    try self.initialize_mmap();
 }
 
+fn initialize_mmap(self: *Camera) !void {
+    if (null == self.file_descriptor) {
+        return error.BadStructInstance;
+    }
+
+    var req: c.struct_v4l2_requestbuffers = std.mem.zeroes(c.struct_v4l2_requestbuffers);
+
+    req.count = 4;
+    req.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    req.memory = c.V4L2_MEMORY_MMAP;
+
+    if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_REQBUFS, &req)) {
+        std.debug.print("Failed to request buffer allocation via mmap.\n", .{});
+        return error.RequestBuffersFailed;
+    }
+
+    if (2 > req.count) {
+        std.debug.print("Insufficient buffer memory on device.\n", .{});
+        return error.InsufficientBufferMemory;
+    }
+
+    self.buffers = try self.allocator.alloc(buffer, req.count);
+    var n_buffers: u8 = 0;
+
+    for (self.buffers) |b| {
+        var buf: c.struct_v4l2_buffer = std.mem.zeroes(c.struct_v4l2_buffer);
+
+        buf.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        buf.memory = c.V4L2_MEMORY_MMAP;
+        buf.index = n_buffers;
+
+        if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_QUERYBUF, &buf)) {
+            std.debug.print("Failed to query buffer info.\n", .{});
+            return error.QueryBufferFailed;
+        }
+
+        self.buffers[n_buffers].length = b.length;
+        self.buffers[n_buffers].start = std.c.mmap(
+            null,
+            buf.length,
+            std.c.PROT.READ | std.c.PROT.WRITE,
+            .{ .TYPE = .SHARED },
+            self.file_descriptor.?,
+            buf.m.offset,
+        );
+
+        if (std.c.MAP_FAILED == self.buffers[n_buffers].start) {
+            std.debug.print("Failed to map buffer to user space.\n", .{});
+            return error.MmapFailed;
+        }
+
+        n_buffers += 1;
+    }
+}
+
+pub fn start_capturing(self: Camera) !void {
+    if ((null == self.file_descriptor) or
+        (2 > self.buffers.len))
+    {
+        return error.BadStructInstance;
+    }
+
+    for (0..self.buffers.len) |index| {
+        var buf: c.struct_v4l2_buffer = std.mem.zeroes(c.struct_v4l2_buffer);
+
+        buf.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        buf.memory = c.V4L2_MEMORY_MMAP;
+        buf.index = @intCast(index);
+
+        if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_QBUF, &buf)) {
+            std.debug.print("Failed to queue buffer {d}.\n", .{index});
+            return error.QueueBufferFailed;
+        }
+    }
+
+    var vtype: c.enum_v4l2_buf_type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_STREAMON, &vtype)) {
+        std.debug.print("Failed to start video streaming.\n", .{});
+        return error.StartStreamingFailed;
+    }
+}
+
+pub fn capture_frames_infinitely(self: Camera) !void {
+    while (true) {
+        try self.capture_single_frame();
+    }
+}
+
+pub fn capture_single_frame(self: Camera) !void {
+    if (null == self.file_descriptor) {
+        return error.BadStructInstance;
+    }
+
+    var buf: c.struct_v4l2_buffer = std.mem.zeroes(c.struct_v4l2_buffer);
+    buf.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    buf.memory = c.V4L2_MEMORY_MMAP;
+
+    if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_DQBUF, &buf)) {
+        if (c.EAGAIN == std.c._errno().*) {
+            //std.debug.print("No frame available yet, try again.\n", .{});
+            return;
+        }
+        std.debug.print("Failed to dequeue buffer.\n", .{});
+        return error.DequeueBufferFailed;
+    }
+    std.debug.print("Captured frame in buffer index {d}.\n", .{buf.index});
+
+    std.debug.print("Processing frame data...\n", .{});
+
+    if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_QBUF, &buf)) {
+        std.debug.print("Failed to re-queue buffer.\n", .{});
+        return error.RequeueBufferFailed;
+    }
+}
+
+//==============================================================================
 // helper function suggested by ai due to ioctl being interruptible
 //fn xioctl(fd: c_int, request: c_ulong, arg: *c.v4l2_capability) c_int {
+//==============================================================================
 fn xioctl(fd: c_int, request: c_ulong, arg: *anyopaque) c_int {
     var r: c_int = -1;
     r = c.ioctl(fd, request, arg);
