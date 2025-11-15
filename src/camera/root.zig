@@ -180,7 +180,7 @@ fn initialize_mmap(self: *Camera) !void {
 
     var req: c.struct_v4l2_requestbuffers = std.mem.zeroes(c.struct_v4l2_requestbuffers);
 
-    req.count = 4;
+    req.count = 50;
     req.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
     req.memory = c.V4L2_MEMORY_MMAP;
 
@@ -289,6 +289,8 @@ pub fn release_buffer(self: Camera, buffer_index: u8) !void {
     buf.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
     buf.memory = c.V4L2_MEMORY_MMAP;
     buf.index = @intCast(buffer_index);
+
+    _ = buffer_queue.EncodingBuffer.dequeue();
 
     if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_QBUF, &buf)) {
         std.debug.print("Failed to re-queue buffer.\n", .{});

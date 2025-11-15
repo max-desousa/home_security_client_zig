@@ -33,26 +33,40 @@ pub fn perfect_core_layout() !void {
 
     const gpa = std.heap.c_allocator;
 
-    var cam = camera.init("/dev/video0", gpa) catch return;
+    var cam = try camera.init("/dev/video0", gpa);
     defer cam.deinit();
 
     try pool.spawn(capture_thread, .{&cam});
     try pool.spawn(encoding_thread, .{&cam});
+
+    for (pool.threads) |thread| {
+        thread.join();
+    }
 }
 
 fn capture_thread(cam: *camera.Camera) void {
     std.debug.print("Number of buffers in camera: {d}\n", .{cam.buffers.len});
-    cam.start_capturing() catch return;
+    cam.start_capturing() catch |err| {
+        std.debug.print("Error starting capturing: {any}\n", .{err});
+        return;
+    };
+    std.debug.print("Started infinitely capturing frames...\n", .{});
     cam.capture_frames_infinitely() catch return;
 }
 
 fn encoding_thread(cam: *camera.Camera) void {
+    std.debug.print("Encoding thread started...\n", .{});
     _ = &cam;
     while (true) {
-        const nullable_new_buffer = buffer_queue.EncodingBuffer.dequeue();
+        const nullable_new_buffer = buffer_queue.EncodingBuffer.get_most_recent_buffer_number();
         if (nullable_new_buffer == null) continue;
 
         const new_buffer = nullable_new_buffer.?;
         std.debug.print("Encoding buffer number: {d}\n", .{new_buffer});
+
+        cam.release_buffer(new_buffer) catch |err| blk: {
+            std.debug.print("Error releasing buffer: {any}\n", .{err});
+            break :blk;
+        };
     }
 }

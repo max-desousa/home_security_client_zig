@@ -29,16 +29,24 @@ pub const BufferQueue = struct {
         return true;
     }
 
-    pub fn dequeue(self: *Self) ?u8 {
+    pub fn get_most_recent_buffer_number(self: Self) ?u8 {
         const head = self.head.load(.acquire);
         const tail = self.tail.load(.monotonic);
 
         if (tail == head) return null;
 
-        const buf_id = self.buffers[tail];
+        return self.buffers[tail];
+    }
+
+    pub fn dequeue(self: *Self) bool {
+        const head = self.head.load(.acquire);
+        const tail = self.tail.load(.monotonic);
+
+        if (tail == head) return false;
+
         self.buffers[tail] = null;
         self.tail.store((tail + 1) % BUFFER_SIZE, .release);
-        return buf_id;
+        return true;
     }
 };
 
