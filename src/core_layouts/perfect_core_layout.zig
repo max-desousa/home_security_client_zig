@@ -1,6 +1,7 @@
 const std = @import("std");
 const camera = @import("camera");
 const buffer_queue = @import("buffer_queue");
+const encoding = @import("encoding");
 
 pub const linked_list = struct {
     data: u8,
@@ -36,7 +37,7 @@ pub fn perfect_core_layout() !void {
     var cam = try camera.init("/dev/video0", gpa);
     defer cam.deinit();
 
-    try pool.spawn(capture_thread, .{&cam});
+    //try pool.spawn(capture_thread, .{&cam});
     try pool.spawn(encoding_thread, .{&cam});
 
     for (pool.threads) |thread| {
@@ -57,6 +58,9 @@ fn capture_thread(cam: *camera.Camera) void {
 fn encoding_thread(cam: *camera.Camera) void {
     std.debug.print("Encoding thread started...\n", .{});
     _ = &cam;
+
+    encoding.init_ffmpeg();
+
     while (true) {
         const nullable_new_buffer = buffer_queue.EncodingBuffer.get_most_recent_buffer_number();
         if (nullable_new_buffer == null) continue;

@@ -4,6 +4,12 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const mod_encoding = b.createModule(.{
+        .root_source_file = b.path("src/encoding/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const mod_globals_buffer_queue = b.createModule(.{
         .root_source_file = b.path("src/global/buffer_queue.zig"),
         .target = target,
@@ -33,6 +39,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "camera", .module = mod_camera },
             .{ .name = "buffer_queue", .module = mod_globals_buffer_queue },
+            .{ .name = "encoding", .module = mod_encoding },
         },
     });
 
@@ -49,6 +56,9 @@ pub fn build(b: *std.Build) void {
     });
 
     exe.linkLibC();
+    exe.linkSystemLibrary("avformat");
+    exe.linkSystemLibrary("avcodec");
+    exe.linkSystemLibrary("avutil");
 
     const options = b.addOptions();
     const number_of_cores = b.option(usize, "number_of_cores", "Number of CPU cores to use for building") orelse std.Thread.getCpuCount() catch 1;
