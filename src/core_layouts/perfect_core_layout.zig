@@ -1,5 +1,6 @@
 const std = @import("std");
 const camera = @import("camera");
+const buffer_queue = @import("buffer_queue");
 
 pub const linked_list = struct {
     data: u8,
@@ -30,25 +31,28 @@ pub fn perfect_core_layout() !void {
     });
     defer pool.deinit();
 
-    try pool.spawn(capture_thread, .{});
-    try pool.spawn(encoding_thread, .{});
-}
-
-fn capture_thread() void {
     const gpa = std.heap.c_allocator;
 
     var cam = camera.init("/dev/video0", gpa) catch return;
     defer cam.deinit();
 
+    try pool.spawn(capture_thread, .{&cam});
+    try pool.spawn(encoding_thread, .{&cam});
+}
+
+fn capture_thread(cam: *camera.Camera) void {
     std.debug.print("Number of buffers in camera: {d}\n", .{cam.buffers.len});
     cam.start_capturing() catch return;
     cam.capture_frames_infinitely() catch return;
 }
 
-fn encoding_thread() void {
+fn encoding_thread(cam: *camera.Camera) void {
+    _ = &cam;
     while (true) {
-        const lock_state = DATA.mutex.tryLock();
-        defer DATA.mutex.unlock();
-        std.debug.print("Data lock state = {b]\n", .{lock_state});
+        const nullable_new_buffer = buffer_queue.EncodingBuffer.dequeue();
+        if (nullable_new_buffer == null) continue;
+
+        const new_buffer = nullable_new_buffer.?;
+        std.debug.print("Encoding buffer number: {d}\n", .{new_buffer});
     }
 }

@@ -1,7 +1,8 @@
-const Camera = @This();
+pub const Camera = @This();
 
 const std = @import("std");
 const file_system = @import("file_system");
+const buffer_queue = @import("buffer_queue");
 const c = @cImport({
     @cInclude("linux/videodev2.h");
     @cInclude("errno.h");
@@ -279,7 +280,15 @@ pub fn capture_single_frame(self: Camera) !void {
     }
     std.debug.print("Captured frame in buffer index {d}.\n", .{buf.index});
 
-    std.debug.print("Processing frame data...\n", .{});
+    std.debug.print("Sending Frame data for encoding...\n", .{});
+    _ = buffer_queue.EncodingBuffer.enqueue(@intCast(buf.index));
+}
+
+pub fn release_buffer(self: Camera, buffer_index: u8) !void {
+    var buf: c.struct_v4l2_buffer = std.mem.zeroes(c.struct_v4l2_buffer);
+    buf.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    buf.memory = c.V4L2_MEMORY_MMAP;
+    buf.index = @intCast(buffer_index);
 
     if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_QBUF, &buf)) {
         std.debug.print("Failed to re-queue buffer.\n", .{});
