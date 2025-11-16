@@ -5,6 +5,26 @@ const c = @cImport({
     @cInclude("libavutil/opt.h");
 });
 
+pub fn encoding_thread() void {
+    std.debug.print("Thread for encoding stared...\n", .{});
+
+    const fmt_ctx = get_format_context("output.mp4");
+    _ = &fmt_ctx;
+}
+
+fn get_format_context(file_name: []const u8) !*c.struct_AVFormatContext {
+    var fmt_ctx: ?*c.struct_AVFormatContext = null;
+
+    if (0 > c.avformat_alloc_output_context2(&fmt_ctx, null, null, file_name.ptr)) {
+        std.debug.print("Failed to allocate output context\n", .{});
+        return error.FailedToAllocateContext;
+    } else {
+        std.debug.print("FFMPEG output context successfully created\n", .{});
+    }
+
+    return fmt_ctx.?;
+}
+
 pub fn init_ffmpeg() void {
     std.debug.print("Starting FFmpeg initialization...\n", .{});
 

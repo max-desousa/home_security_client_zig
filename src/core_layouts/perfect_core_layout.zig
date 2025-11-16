@@ -47,8 +47,8 @@ pub fn perfect_core_layout() !void {
     var cam = try camera.init("/dev/video0", gpa);
     defer cam.deinit();
 
-    try pool.spawn(capture_thread, .{&cam});
-    try pool.spawn(encoding_thread, .{&cam});
+    //try pool.spawn(capture_thread, .{&cam});
+    try pool.spawn(encoding.encoding_thread, .{});
 
     for (pool.threads) |thread| {
         thread.join();
