@@ -12,6 +12,42 @@ pub fn encoding_thread() void {
     _ = &fmt_ctx;
 }
 
+pub fn find_encoder() !*c.AVCodec {
+    const codec: ?*c.AVCodec = c.avcodec_find_encoder(c.AV_CODEC_ID_H264);
+    if (null == codec) {
+        return error.CodecNotFound;
+    }
+    return codec.?;
+}
+
+pub fn create_encoder_context(codec: *c.AVCodec) !*c.AVCodecContext {
+    const nullable_enc_context: ?*c.AVCodecContext = c.avcodec_alloc_context3(codec);
+
+    if (null == nullable_enc_context) {
+        return error.EncoderContextNotCreated;
+    }
+    var encoder_context: *c.AVCodecContext = nullable_enc_context.?;
+
+    encoder_context.width = 640;
+    encoder_context.height = 480;
+    encoder_context.time_base = .{ .num = 1, .den = 30 };
+    encoder_context.framerate = .{ .num = 30, .den = 1 };
+    encoder_context.pix_fmt = c.AV_PIX_FMT_YUV420P;
+
+    encoder_context.bit_rate = 4_000_000;
+    encoder_context.gop_size = 30;
+    encoder_context.max_b_frames = 2;
+
+    if ((c.AV_CODEC_ID_H264 == codec.id) or
+        (c.AV_CODEC_ID_HEVC == codec.id))
+    {
+        _ = c.av_opt_set(encoder_context.priv_data, "preset", "ultrafast", 0);
+        _ = c.av_opt_set(encoder_context.priv_data, "tune", "zerolatency", 0);
+    }
+
+    return encoder_context;
+}
+
 fn get_format_context(file_name: []const u8) !*c.struct_AVFormatContext {
     var fmt_ctx: ?*c.struct_AVFormatContext = null;
 

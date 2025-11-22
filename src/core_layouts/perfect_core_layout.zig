@@ -2,6 +2,7 @@ const std = @import("std");
 const camera = @import("camera");
 const buffer_queue = @import("buffer_queue");
 const encoding = @import("encoding");
+const builtin = @import("builtin");
 const c = @cImport({
     @cInclude("linux/videodev2.h");
     @cInclude("errno.h");
@@ -32,17 +33,22 @@ pub fn perfect_core_layout() !void {
     // Implementation for perfect core layout
     std.debug.print("Using perfect core layout\n", .{});
 
-    std.debug.print("Initializing thread pool...\n", .{});
-    const allocator = std.heap.page_allocator;
-    var pool: std.Thread.Pool = undefined;
+    std.debug.print("====================\n");
+    std.debug.print("Initializing thread pool... (using new Io concurrent)\n", .{});
+    const allocator = blk: if (.ReleaseFast == builtin.mode) {
+        break :blk std.heap.SmpAllocator;
+    }
+    else {
+        const gpa : std.heap.GeneralPurposeAllocator = .init{};
+        break :blk gpa.allocator;
+    }
+    const allocator = std.heap.c_allocator;
+    var threaded: std.Io.Threaded = .init(allocator);
+    defer threaded.deinit();
+    const io = threaded.io();
+    std.debug.print("Finished setting up threads and io\n", .{});
 
-    try pool.init(.{
-        .allocator = allocator,
-        .track_ids = true,
-    });
-    defer pool.deinit();
-
-    const gpa = std.heap.c_allocator;
+    std.debug.print("====================\n");
 
     var cam = try camera.init("/dev/video0", gpa);
     defer cam.deinit();
