@@ -27,6 +27,7 @@ pub fn create_encoder_context(codec: *c.AVCodec) !*c.AVCodecContext {
         return error.EncoderContextNotCreated;
     }
     var encoder_context: *c.AVCodecContext = nullable_enc_context.?;
+    errdefer c.avcodec_free_context(&encoder_context);
 
     encoder_context.width = 640;
     encoder_context.height = 480;
@@ -46,6 +47,31 @@ pub fn create_encoder_context(codec: *c.AVCodec) !*c.AVCodecContext {
     }
 
     return encoder_context;
+}
+
+pub fn create_output_context(encoder_context: *c.AVCodecContext, codec: *c.AVCodec) !*c.AVFormatContext {
+    var nullable_output_context: ?*c.AVFormatContext = null;
+    c.avformat_alloc_output_context2(&nullable_output_context, null, null, "output.mp4");
+
+    if (null == nullable_output_context) {
+        return error.OutputContextCreationFailed;
+    }
+
+    const output_context = nullable_output_context.?;
+    errdefer c.avformat_free_context(output_context);
+
+    const nullable_stream: ?*c.AVStream = c.avformat_new_stream(output_context, null);
+    if (null == nullable_stream) {
+        return error.VideoStreamCreationFailed;
+    }
+    var stream: *c.AVStream = nullable_stream.?;
+    stream.time_base = encoder_context.time_base;
+    stream.codecpar.codec_id = codec.id;
+    stream.codecpar.codec_type = c.AVMEDIA_TYPE_VIDEO;
+    stream.codecpar.width = encoder_context.width;
+    stream.codecpar.height = encoder_context.height;
+    stream.codecpar.format = encoder_context.pix_fmt;
+    stream.codecpar.bit_rate = encoder_context.bit_rate;
 }
 
 fn get_format_context(file_name: []const u8) !*c.struct_AVFormatContext {

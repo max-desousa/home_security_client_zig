@@ -33,32 +33,34 @@ pub fn perfect_core_layout() !void {
     // Implementation for perfect core layout
     std.debug.print("Using perfect core layout\n", .{});
 
-    std.debug.print("====================\n");
+    std.debug.print("====================\n", .{});
     std.debug.print("Initializing thread pool... (using new Io concurrent)\n", .{});
-    const allocator = blk: if (.ReleaseFast == builtin.mode) {
-        break :blk std.heap.SmpAllocator;
-    }
-    else {
-        const gpa : std.heap.GeneralPurposeAllocator = .init{};
-        break :blk gpa.allocator;
-    }
-    const allocator = std.heap.c_allocator;
+    const allocator = blk: {
+        if (.ReleaseFast == builtin.mode) {
+            break :blk std.heap.smp_allocator;
+        } else {
+            var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
+            break :blk gpa.allocator();
+        }
+    };
     var threaded: std.Io.Threaded = .init(allocator);
     defer threaded.deinit();
     const io = threaded.io();
     std.debug.print("Finished setting up threads and io\n", .{});
 
-    std.debug.print("====================\n");
+    std.debug.print("====================\n", .{});
 
-    var cam = try camera.init("/dev/video0", gpa);
-    defer cam.deinit();
+    _ = try io.concurrent(encoding.encoding_thread, .{});
+
+    //var cam = try camera.init("/dev/video0", gpa);
+    //defer cam.deinit();
 
     //try pool.spawn(capture_thread, .{&cam});
-    try pool.spawn(encoding.encoding_thread, .{});
+    //try pool.spawn(encoding.encoding_thread, .{});
 
-    for (pool.threads) |thread| {
-        thread.join();
-    }
+    //for (pool.threads) |thread| {
+    //    thread.join();
+    //}
 }
 
 fn capture_thread(cam: *camera.Camera) void {
