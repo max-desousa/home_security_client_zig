@@ -3,6 +3,7 @@ pub const Camera = @This();
 const std = @import("std");
 const file_system = @import("file_system");
 const buffer_queue = @import("buffer_queue");
+const debug = @import("debug");
 const c = @cImport({
     @cInclude("linux/videodev2.h");
     @cInclude("errno.h");
@@ -20,6 +21,44 @@ device_name: ?[*:0]const u8,
 allocator: std.mem.Allocator,
 buffers: []buffer = undefined,
 n_buffers: u8 = undefined,
+
+pub fn ten_second_capture_thread(self: *Camera, io: std.Io, queue: *std.Io.Queue(u8)) !void {
+    if (null == self.file_descriptor) {
+        return error.BadStructInstance1;
+    }
+    debug.print("Trying to start capturing...\n", .{});
+    try self.start_capturing();
+    debug.print("Capturing started...\n", .{});
+
+    const starting_time_stamp = try std.Io.Clock.now(std.Io.Clock.real, io);
+    debug.print("Timestamp: {any}\n", .{starting_time_stamp});
+    var current_time_stamp: std.Io.Timestamp = starting_time_stamp;
+    var duration_in_seconds: i64 = 0;
+
+    while (10 > duration_in_seconds) {
+        current_time_stamp = try std.Io.Clock.now(std.Io.Clock.real, io);
+        duration_in_seconds = std.Io.Timestamp.durationTo(starting_time_stamp, current_time_stamp).toSeconds();
+
+        var buf: c.struct_v4l2_buffer = std.mem.zeroes(c.struct_v4l2_buffer);
+        buf.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        buf.memory = c.V4L2_MEMORY_MMAP;
+
+        if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_DQBUF, &buf)) {
+            if (c.EAGAIN == std.c._errno().*) {
+                //std.debug.print("No frame available yet, try again.\n", .{});
+                //return;
+                continue;
+            }
+            std.debug.print("Failed to dequeue buffer.\n", .{});
+            return error.DequeueBufferFailed;
+        }
+        debug.print("Captured frame in buffer index {d}.\n", .{buf.index});
+
+        debug.print("Sending Frame data for encoding...\n", .{});
+        try queue.putOne(io, @intCast(buf.index));
+        debug.print("put frame in queue\n", .{});
+    }
+}
 
 pub fn init(dev_name: [*:0]const u8, allocator: std.mem.Allocator) !Camera {
     var camera: Camera = .{

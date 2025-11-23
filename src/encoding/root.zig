@@ -1,17 +1,18 @@
 const std = @import("std");
+const debug = @import("debug");
 const c = @cImport({
     @cInclude("libavformat/avformat.h");
     @cInclude("libavcodec/avcodec.h");
     @cInclude("libavutil/opt.h");
 });
 
-pub fn encoding_thread(io: std.Io) !void {
-    std.debug.print("\tLooking for encoder...\n", .{});
+pub fn encoding_thread(io: std.Io, queue: *std.Io.Queue(u8)) !void {
+    debug.print("\tLooking for encoder...\n", .{});
     const encoder = try find_encoder();
-    std.debug.print("\tEstablishing encoder context...\n", .{});
+    debug.print("\tEstablishing encoder context...\n", .{});
     var encoder_context = try create_encoder_context(encoder);
     defer c.avcodec_free_context(@ptrCast(&encoder_context));
-    std.debug.print("\tCreating output context...\n", .{});
+    debug.print("\tCreating output context...\n", .{});
     var output_context = try create_output_context(encoder_context, encoder);
     defer c.avformat_free_context(output_context);
 
@@ -22,13 +23,18 @@ pub fn encoding_thread(io: std.Io) !void {
     _ = c.avformat_write_header(output_context, null);
 
     const starting_time_stamp = try std.Io.Clock.now(std.Io.Clock.real, io);
-    std.debug.print("Timestamp: {any}\n", .{starting_time_stamp});
+    debug.print("Timestamp: {any}\n", .{starting_time_stamp});
     var current_time_stamp: std.Io.Timestamp = starting_time_stamp;
     var duration_in_seconds: i64 = 0;
 
     while (10 > duration_in_seconds) {
         current_time_stamp = try std.Io.Clock.now(std.Io.Clock.real, io);
         duration_in_seconds = std.Io.Timestamp.durationTo(starting_time_stamp, current_time_stamp).toSeconds();
+
+        const buff_number = try queue.getOne(io);
+        // Do something with the buffer...
+        debug.print("Found a frame in buffer: {d}\n", .{buff_number});
+        debug.print("\tcapacity of queue is: {d}\n", .{queue.capacity()});
     }
 
     _ = c.av_write_trailer(output_context);
@@ -103,33 +109,33 @@ fn get_format_context(file_name: []const u8) !*c.struct_AVFormatContext {
     var fmt_ctx: ?*c.struct_AVFormatContext = null;
 
     if (0 > c.avformat_alloc_output_context2(&fmt_ctx, null, null, file_name.ptr)) {
-        std.debug.print("Failed to allocate output context\n", .{});
+        debug.print("Failed to allocate output context\n", .{});
         return error.FailedToAllocateContext;
     } else {
-        std.debug.print("FFMPEG output context successfully created\n", .{});
+        debug.print("FFMPEG output context successfully created\n", .{});
     }
 
     return fmt_ctx.?;
 }
 
 pub fn init_ffmpeg() void {
-    std.debug.print("Starting FFmpeg initialization...\n", .{});
+    debug.print("Starting FFmpeg initialization...\n", .{});
 
     var fmt_ctx: ?*c.struct_AVFormatContext = null;
 
     if (0 > c.avformat_alloc_output_context2(&fmt_ctx, null, null, "output.mp4")) {
-        std.debug.print("Failed to allocate output context\n", .{});
+        debug.print("Failed to allocate output context\n", .{});
     }
 
     const codec: ?*c.AVCodec = c.avcodec_find_encoder(c.AV_CODEC_ID_H264);
     if (null == codec) {
-        std.debug.print("H.264 codec not found\n", .{});
+        debug.print("H.264 codec not found\n", .{});
     }
 
     var video_st: ?*c.struct_AVStream = null;
     video_st = c.avformat_new_stream(fmt_ctx, null);
     if (null == video_st) {
-        std.debug.print("Failed to create new stream\n", .{});
+        debug.print("Failed to create new stream\n", .{});
     }
 
     var enc_ctx: ?*c.struct_AVCodecContext = null;
@@ -152,7 +158,7 @@ pub fn init_ffmpeg() void {
     }
 
     if (c.avcodec_open2(enc_ctx.?, codec.?, null) < 0) {
-        std.debug.print("Could not open codec\n", .{});
+        debug.print("Could not open codec\n", .{});
     }
 
     _ = c.avcodec_parameters_from_context(video_st.?.codecpar, enc_ctx.?);
@@ -160,13 +166,13 @@ pub fn init_ffmpeg() void {
 
     if ((fmt_ctx.?.*.oformat.*.flags & c.AVFMT_NOFILE) == 0) {
         if (c.avio_open(&fmt_ctx.?.*.pb, "output.mp4", c.AVIO_FLAG_WRITE) < 0) {
-            std.debug.print("Could not open output file\n", .{});
+            debug.print("Could not open output file\n", .{});
         }
     }
 
     if (c.avformat_write_header(fmt_ctx.?, null) < 0) {
-        std.debug.print("Error occurred when opening output file\n", .{});
+        debug.print("Error occurred when opening output file\n", .{});
     }
 
-    std.debug.print("FFmpeg initialization completed successfully.\n", .{});
+    debug.print("FFmpeg initialization completed successfully.\n", .{});
 }

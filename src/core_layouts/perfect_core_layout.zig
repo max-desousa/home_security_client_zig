@@ -3,6 +3,7 @@ const camera = @import("camera");
 const buffer_queue = @import("buffer_queue");
 const encoding = @import("encoding");
 const builtin = @import("builtin");
+const debug = @import("debug");
 const c = @cImport({
     @cInclude("linux/videodev2.h");
     @cInclude("errno.h");
@@ -31,10 +32,10 @@ var DATA: shared_data = .{
 
 pub fn perfect_core_layout() !void {
     // Implementation for perfect core layout
-    std.debug.print("Using perfect core layout\n", .{});
+    debug.print("Using perfect core layout\n", .{});
 
-    std.debug.print("====================\n", .{});
-    std.debug.print("Initializing thread pool... (using new Io concurrent)\n", .{});
+    debug.print("====================\n", .{});
+    debug.print("Initializing thread pool and allocators... (using new Io concurrent)\n", .{});
     const allocator = blk: {
         if (.ReleaseFast == builtin.mode) {
             break :blk std.heap.smp_allocator;
@@ -46,21 +47,31 @@ pub fn perfect_core_layout() !void {
     var threaded: std.Io.Threaded = .init(allocator);
     defer threaded.deinit();
     const io = threaded.io();
-    std.debug.print("Finished setting up threads and io\n", .{});
+    debug.print("\tFinished setting up threads and io\n", .{});
 
-    std.debug.print("====================\n", .{});
+    debug.print("====================\n", .{});
+    debug.print("Initializing Camera...\n", .{});
 
-    _ = try io.concurrent(encoding.encoding_thread, .{io});
-
-    //var cam = try camera.init("/dev/video0", gpa);
+    var cam = try camera.init("/dev/video0", allocator);
     //defer cam.deinit();
 
-    //try pool.spawn(capture_thread, .{&cam});
-    //try pool.spawn(encoding.encoding_thread, .{});
+    debug.print("\tDone Initializing Camera...\n", .{});
+    debug.print("====================\n", .{});
 
-    //for (pool.threads) |thread| {
-    //    thread.join();
-    //}
+    var queue: std.Io.Queue(u8) = .init(&.{});
+
+    _ = try io.concurrent(encoding.encoding_thread, .{ io, &queue });
+    debug.print("are we getting here?\n", .{});
+    _ = try io.concurrent(cap_thread, .{ &cam, io, &queue });
+    debug.print("how about here?\n", .{});
+}
+
+fn cap_thread(cam: *camera.Camera, io: std.Io, queue: *std.Io.Queue(u8)) !void {
+    debug.print("Start of stupid capture thread...\n", .{});
+    cam.ten_second_capture_thread(io, queue) catch |err| {
+        debug.print("Error code received: {any}\n", .{err});
+    };
+    debug.print("Capture thread run...\n", .{});
 }
 
 fn capture_thread(cam: *camera.Camera) void {
