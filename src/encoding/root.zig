@@ -5,28 +5,40 @@ const c = @cImport({
     @cInclude("libavutil/opt.h");
 });
 
-pub fn encoding_thread() void {
-    std.debug.print("Thread for encoding stared...\n", .{});
+pub fn encoding_thread() !void {
+    std.debug.print("\tLooking for encoder...\n", .{});
+    const encoder = try find_encoder();
+    std.debug.print("\tEstablishing encoder context...\n", .{});
+    var encoder_context = try create_encoder_context(encoder);
+    defer c.avcodec_free_context(@ptrCast(&encoder_context));
+    std.debug.print("\tCreating output context...\n", .{});
+    var output_context = try create_output_context(encoder_context, encoder);
+    defer c.avformat_free_context(output_context);
 
-    const fmt_ctx = get_format_context("output.mp4");
-    _ = &fmt_ctx;
+    if (0 > c.avcodec_open2(encoder_context, encoder, null)) {
+        return error.CouldNotOpenCodec;
+    }
+    _ = c.avio_open(&output_context.pb, "output.mp4", c.AVIO_FLAG_WRITE);
+    _ = c.avformat_write_header(output_context, null);
+    _ = c.av_write_trailer(output_context);
+    _ = c.avio_closep(&output_context.pb);
 }
 
-pub fn find_encoder() !*c.AVCodec {
-    const codec: ?*c.AVCodec = c.avcodec_find_encoder(c.AV_CODEC_ID_H264);
+pub fn find_encoder() !*c.struct_AVCodec {
+    const codec: ?*c.struct_AVCodec = c.avcodec_find_encoder(c.AV_CODEC_ID_H264);
     if (null == codec) {
         return error.CodecNotFound;
     }
     return codec.?;
 }
 
-pub fn create_encoder_context(codec: *c.AVCodec) !*c.AVCodecContext {
-    const nullable_enc_context: ?*c.AVCodecContext = c.avcodec_alloc_context3(codec);
+pub fn create_encoder_context(codec: *c.struct_AVCodec) !*c.struct_AVCodecContext {
+    const nullable_enc_context: ?*c.struct_AVCodecContext = c.avcodec_alloc_context3(codec);
 
     if (null == nullable_enc_context) {
         return error.EncoderContextNotCreated;
     }
-    var encoder_context: *c.AVCodecContext = nullable_enc_context.?;
+    var encoder_context: *c.struct_AVCodecContext = nullable_enc_context.?;
     errdefer c.avcodec_free_context(&encoder_context);
 
     encoder_context.width = 640;
@@ -49,29 +61,31 @@ pub fn create_encoder_context(codec: *c.AVCodec) !*c.AVCodecContext {
     return encoder_context;
 }
 
-pub fn create_output_context(encoder_context: *c.AVCodecContext, codec: *c.AVCodec) !*c.AVFormatContext {
-    var nullable_output_context: ?*c.AVFormatContext = null;
-    c.avformat_alloc_output_context2(&nullable_output_context, null, null, "output.mp4");
+pub fn create_output_context(encoder_context: *c.struct_AVCodecContext, codec: *c.struct_AVCodec) !*c.struct_AVFormatContext {
+    var nullable_output_context: ?*c.struct_AVFormatContext = null;
+    _ = c.avformat_alloc_output_context2(&nullable_output_context, null, null, "output.mp4");
 
     if (null == nullable_output_context) {
         return error.OutputContextCreationFailed;
     }
 
-    const output_context = nullable_output_context.?;
+    const output_context: *c.struct_AVFormatContext = nullable_output_context.?;
     errdefer c.avformat_free_context(output_context);
 
-    const nullable_stream: ?*c.AVStream = c.avformat_new_stream(output_context, null);
+    const nullable_stream: ?*c.struct_AVStream = c.avformat_new_stream(output_context, null);
     if (null == nullable_stream) {
         return error.VideoStreamCreationFailed;
     }
-    var stream: *c.AVStream = nullable_stream.?;
+    var stream: *c.struct_AVStream = nullable_stream.?;
     stream.time_base = encoder_context.time_base;
-    stream.codecpar.codec_id = codec.id;
-    stream.codecpar.codec_type = c.AVMEDIA_TYPE_VIDEO;
-    stream.codecpar.width = encoder_context.width;
-    stream.codecpar.height = encoder_context.height;
-    stream.codecpar.format = encoder_context.pix_fmt;
-    stream.codecpar.bit_rate = encoder_context.bit_rate;
+    stream.codecpar.*.codec_id = codec.id;
+    stream.codecpar.*.codec_type = c.AVMEDIA_TYPE_VIDEO;
+    stream.codecpar.*.width = encoder_context.width;
+    stream.codecpar.*.height = encoder_context.height;
+    stream.codecpar.*.format = encoder_context.pix_fmt;
+    stream.codecpar.*.bit_rate = encoder_context.bit_rate;
+
+    return output_context;
 }
 
 fn get_format_context(file_name: []const u8) !*c.struct_AVFormatContext {
