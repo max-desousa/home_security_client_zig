@@ -50,7 +50,7 @@ pub fn perfect_core_layout() !void {
 
     std.debug.print("====================\n", .{});
 
-    _ = try io.concurrent(encoding.encoding_thread, .{});
+    _ = try io.concurrent(encoding.encoding_thread, .{io});
 
     //var cam = try camera.init("/dev/video0", gpa);
     //defer cam.deinit();

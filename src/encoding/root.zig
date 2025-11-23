@@ -5,7 +5,7 @@ const c = @cImport({
     @cInclude("libavutil/opt.h");
 });
 
-pub fn encoding_thread() !void {
+pub fn encoding_thread(io: std.Io) !void {
     std.debug.print("\tLooking for encoder...\n", .{});
     const encoder = try find_encoder();
     std.debug.print("\tEstablishing encoder context...\n", .{});
@@ -20,6 +20,17 @@ pub fn encoding_thread() !void {
     }
     _ = c.avio_open(&output_context.pb, "output.mp4", c.AVIO_FLAG_WRITE);
     _ = c.avformat_write_header(output_context, null);
+
+    const starting_time_stamp = try std.Io.Clock.now(std.Io.Clock.real, io);
+    std.debug.print("Timestamp: {any}\n", .{starting_time_stamp});
+    var current_time_stamp: std.Io.Timestamp = starting_time_stamp;
+    var duration_in_seconds: i64 = 0;
+
+    while (10 > duration_in_seconds) {
+        current_time_stamp = try std.Io.Clock.now(std.Io.Clock.real, io);
+        duration_in_seconds = std.Io.Timestamp.durationTo(starting_time_stamp, current_time_stamp).toSeconds();
+    }
+
     _ = c.av_write_trailer(output_context);
     _ = c.avio_closep(&output_context.pb);
 }
