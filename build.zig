@@ -4,6 +4,12 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const mod_sync_data = b.createModule(.{
+        .root_source_file = b.path("src/global/sync_data.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const mod_debug = b.createModule(.{
         .root_source_file = b.path("src/debug/root.zig"),
         .target = target,
@@ -19,12 +25,6 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    const mod_globals_buffer_queue = b.createModule(.{
-        .root_source_file = b.path("src/global/buffer_queue.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
     const mod_file_system = b.createModule(.{
         .root_source_file = b.path("src/file_system/root.zig"),
         .target = target,
@@ -37,7 +37,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "file_system", .module = mod_file_system },
-            .{ .name = "buffer_queue", .module = mod_globals_buffer_queue },
+            .{ .name = "sync_data", .module = mod_sync_data },
             .{ .name = "debug", .module = mod_debug },
         },
     });
@@ -48,7 +48,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "camera", .module = mod_camera },
-            .{ .name = "buffer_queue", .module = mod_globals_buffer_queue },
+            .{ .name = "sync_data", .module = mod_sync_data },
             .{ .name = "encoding", .module = mod_encoding },
             .{ .name = "debug", .module = mod_debug },
         },
