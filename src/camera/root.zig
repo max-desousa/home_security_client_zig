@@ -51,6 +51,20 @@ pub fn infinite_capture(self: *Camera, sync_data: *sync.SynchronousData) void {
             std.debug.print("\tExternal error was: {any}\n", .{sync_data.sync_error.?});
             return;
         }
+
+        if (0 != sync_data.free_flags.count()) {
+            sync_data.mutex.lock();
+            defer sync_data.mutex.unlock();
+            while (sync_data.free_flags.findFirstSet()) |num| {
+                sync_data.free_flags.unset(num);
+                self.release_buffer(@intCast(num)) catch |err| {
+                    std.debug.print("Error Freeing buffer...\n", .{});
+                    std.debug.print("\tError code: {any}\n", .{err});
+                    break;
+                };
+            }
+        }
+
         const frame_captured = self.capture_single_frame() catch |err| {
             std.debug.print("Error capturing a frame from the camera...\n", .{});
             std.debug.print("\tError received was: {any}\n", .{err});

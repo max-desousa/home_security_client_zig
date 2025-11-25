@@ -57,6 +57,7 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
         sync_data.sync_error = sync.ThreadingErrors.IOError;
         return;
     };
+
     debug.print("Timestamp: {any}\n", .{starting_time_stamp});
     var current_time_stamp: std.Io.Timestamp = starting_time_stamp;
     var duration_in_seconds: i64 = 0;
@@ -76,7 +77,9 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
         if (null != buff_num) {
             std.debug.print("Encoder got a frame in buffer: {d}\n", .{buff_num.?});
             std.debug.print("Freeing buffer...\n", .{});
-            _ = sync_data.pop() catch {
+            sync_data.pop() catch |err| {
+                std.debug.print("**Error received when freeing frame\n", .{});
+                std.debug.print("\tError message: {any}\n", .{err});
                 continue;
             };
         }

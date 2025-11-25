@@ -20,11 +20,13 @@ pub const SynchronousData = struct {
     const BUFFER_SIZE = 32;
     mutex: std.Thread.Mutex = .{},
     buffers: [BUFFER_SIZE]u8 = std.mem.zeroes([BUFFER_SIZE]u8),
+    //free_flags: std.bit_set = std.bit_set.IntegerBitSet(BUFFER_SIZE).initEmpty(),
+    free_flags: std.bit_set.IntegerBitSet(BUFFER_SIZE) = std.bit_set.IntegerBitSet(BUFFER_SIZE).initEmpty(),
     sync_error: ?ThreadingErrors = null,
     head: usize = 0,
     tail: usize = 0,
 
-    pub fn pop(self: *Self) !u8 {
+    pub fn pop(self: *Self) !void {
         self.mutex.lock();
         defer self.mutex.unlock();
         if (self.head == self.tail) {
@@ -32,7 +34,8 @@ pub const SynchronousData = struct {
         }
         const value = self.buffers[self.tail];
         self.tail = ((self.tail + 1) % BUFFER_SIZE);
-        return value;
+        self.free_flags.set(value);
+        //return value;
     }
 
     pub fn push(self: *Self, buf_num: u8) !void {
