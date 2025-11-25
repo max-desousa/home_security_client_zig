@@ -72,6 +72,14 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
         duration_in_seconds = std.Io.Timestamp.durationTo(starting_time_stamp, current_time_stamp).toSeconds();
 
         // Do something with the buffer...
+        const buff_num = sync_data.get_first();
+        if (null != buff_num) {
+            std.debug.print("Encoder got a frame in buffer: {d}\n", .{buff_num.?});
+            std.debug.print("Freeing buffer...\n", .{});
+            _ = sync_data.pop() catch {
+                continue;
+            };
+        }
     }
 
     {

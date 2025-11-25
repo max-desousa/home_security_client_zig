@@ -54,6 +54,6 @@ pub const SynchronousData = struct {
             return null;
         }
 
-        return self.tail;
+        return @intCast(self.tail);
     }
 };
