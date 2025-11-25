@@ -5,6 +5,10 @@ const encoding = @import("encoding");
 const debug = @import("debug");
 const sync = @import("sync_data");
 
+const SIGNALS = [_]i32{
+    std.os.SIG.INT,
+};
+
 pub fn perfect_core_layout() !void {
     // Implementation for perfect core layout
     debug.print("Using perfect core layout\n", .{});
@@ -26,19 +30,15 @@ pub fn perfect_core_layout() !void {
 
     debug.print("====================\n", .{});
 
-    debug.print("Checking for and setting up camera - don't bother running without valid camera\n", .{});
-    var cam = try camera.init("/dev/video0", allocator);
-    defer cam.deinit();
-
     debug.print("====================\n", .{});
     debug.print("Establishing synchronous data\n", .{});
     var sync_data: sync.SynchronousData = .{};
 
     debug.print("====================\n", .{});
 
-    debug.print("Starting encoder thread\n", .{});
-    try pool.spawn(encoding.encoder_thread, .{&sync_data});
+    //debug.print("Starting encoder thread\n", .{});
+    //try pool.spawn(encoding.encoder_thread, .{&sync_data});
 
     debug.print("Starting capture thread\n", .{});
-    try pool.spawn(cam.infinite_capture, .{&sync_data});
+    try pool.spawn(camera.run, .{ "/dev/video0", allocator, &sync_data });
 }

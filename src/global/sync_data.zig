@@ -1,12 +1,15 @@
 const std = @import("std");
 
-const ThreadingErrors = error{
+pub const ThreadingErrors = error{
+    CameraCouldNotStart,
+    CameraCouldNotCaptureFrame,
     CameraUnrecoverable,
     EncoderUnrecoverable,
     CameraRunOutOfBuffers,
+    CameraCouldNotFreeBuffer,
 };
 
-const SynchronousData = struct {
+pub const SynchronousData = struct {
     const Self = @This();
     const BUFFER_SIZE = 32;
     mutex: std.Thread.Mutex = .{},
