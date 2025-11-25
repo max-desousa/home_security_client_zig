@@ -1,40 +1,83 @@
 const std = @import("std");
 const debug = @import("debug");
+const sync = @import("sync_data");
 const c = @cImport({
     @cInclude("libavformat/avformat.h");
     @cInclude("libavcodec/avcodec.h");
     @cInclude("libavutil/opt.h");
 });
 
-pub fn encoding_thread(io: std.Io, queue: *std.Io.Queue(u8)) !void {
+pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
     debug.print("\tLooking for encoder...\n", .{});
-    const encoder = try find_encoder();
+    const encoder = find_encoder() catch |err| {
+        debug.print("Failed during step to find encoder...\n", .{});
+        debug.print("\tError code: {any}\n", .{err});
+        sync_data.mutex.lock();
+        defer sync_data.mutex.lock();
+        sync_data.sync_error = sync.ThreadingErrors.EncoderCouldNotBeFound;
+        return;
+    };
     debug.print("\tEstablishing encoder context...\n", .{});
-    var encoder_context = try create_encoder_context(encoder);
+    var encoder_context = create_encoder_context(encoder) catch |err| {
+        debug.print("Failed during setup of encoder context...\n", .{});
+        debug.print("\tError code: {any}\n", .{err});
+        sync_data.mutex.lock();
+        defer sync_data.mutex.lock();
+        sync_data.sync_error = sync.ThreadingErrors.EncoderCouldNotSetContext;
+        return;
+    };
     defer c.avcodec_free_context(@ptrCast(&encoder_context));
     debug.print("\tCreating output context...\n", .{});
-    var output_context = try create_output_context(encoder_context, encoder);
+    var output_context = create_output_context(encoder_context, encoder) catch |err| {
+        debug.print("Failed during setup of output context...\n", .{});
+        debug.print("\tError code: {any}\n", .{err});
+        sync_data.mutex.lock();
+        defer sync_data.mutex.lock();
+        sync_data.sync_error = sync.ThreadingErrors.EncoderCouldNotSetOutputContext;
+        return;
+    };
     defer c.avformat_free_context(output_context);
-
     if (0 > c.avcodec_open2(encoder_context, encoder, null)) {
-        return error.CouldNotOpenCodec;
+        debug.print("Could not open codec - aborting...\n", .{});
+        sync_data.mutex.lock();
+        defer sync_data.mutex.lock();
+        sync_data.sync_error = sync.ThreadingErrors.EncoderCouldNotOpenCodec;
+        return;
     }
     _ = c.avio_open(&output_context.pb, "output.mp4", c.AVIO_FLAG_WRITE);
     _ = c.avformat_write_header(output_context, null);
 
-    const starting_time_stamp = try std.Io.Clock.now(std.Io.Clock.real, io);
+    var threaded = std.Io.Threaded.init_single_threaded;
+    //const io = std.Io.Threaded.io(&std.Io.Threaded.init_single_threaded);
+    const io = std.Io.Threaded.io(&threaded);
+    const starting_time_stamp = std.Io.Clock.now(std.Io.Clock.real, io) catch {
+        std.debug.print("Error with IO...\n", .{});
+        sync_data.mutex.lock();
+        defer sync_data.mutex.lock();
+        sync_data.sync_error = sync.ThreadingErrors.IOError;
+        return;
+    };
     debug.print("Timestamp: {any}\n", .{starting_time_stamp});
     var current_time_stamp: std.Io.Timestamp = starting_time_stamp;
     var duration_in_seconds: i64 = 0;
 
     while (10 > duration_in_seconds) {
-        current_time_stamp = try std.Io.Clock.now(std.Io.Clock.real, io);
+        current_time_stamp = std.Io.Clock.now(std.Io.Clock.real, io) catch {
+            std.debug.print("Error with IO...\n", .{});
+            sync_data.mutex.lock();
+            defer sync_data.mutex.lock();
+            sync_data.sync_error = sync.ThreadingErrors.IOError;
+            return;
+        };
         duration_in_seconds = std.Io.Timestamp.durationTo(starting_time_stamp, current_time_stamp).toSeconds();
 
-        const buff_number = try queue.getOne(io);
         // Do something with the buffer...
-        debug.print("Found a frame in buffer: {d}\n", .{buff_number});
-        debug.print("\tcapacity of queue is: {d}\n", .{queue.capacity()});
+    }
+
+    {
+        sync_data.mutex.lock();
+        defer sync_data.mutex.unlock();
+        sync_data.sync_error = sync.ThreadingErrors.EncoderTimedOut;
     }
 
     _ = c.av_write_trailer(output_context);

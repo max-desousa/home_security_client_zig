@@ -36,8 +36,8 @@ pub fn perfect_core_layout() !void {
 
     debug.print("====================\n", .{});
 
-    //debug.print("Starting encoder thread\n", .{});
-    //try pool.spawn(encoding.encoder_thread, .{&sync_data});
+    debug.print("Starting encoder thread\n", .{});
+    try pool.spawn(encoding.encoding_thread, .{&sync_data});
 
     debug.print("Starting capture thread\n", .{});
     try pool.spawn(camera.run, .{ "/dev/video0", allocator, &sync_data });

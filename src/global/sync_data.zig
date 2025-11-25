@@ -5,6 +5,12 @@ pub const ThreadingErrors = error{
     CameraCouldNotCaptureFrame,
     CameraUnrecoverable,
     EncoderUnrecoverable,
+    EncoderCouldNotBeFound,
+    EncoderCouldNotSetContext,
+    EncoderCouldNotSetOutputContext,
+    EncoderCouldNotOpenCodec,
+    EncoderTimedOut,
+    IOError,
     CameraRunOutOfBuffers,
     CameraCouldNotFreeBuffer,
 };

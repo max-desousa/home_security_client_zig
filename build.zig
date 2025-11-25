@@ -22,6 +22,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "debug", .module = mod_debug },
+            .{ .name = "sync_data", .module = mod_sync_data },
         },
     });
 
