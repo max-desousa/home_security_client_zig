@@ -5,6 +5,7 @@ const c = @cImport({
     @cInclude("libavformat/avformat.h");
     @cInclude("libavcodec/avcodec.h");
     @cInclude("libavutil/opt.h");
+    @cInclude("libswscale/swscale.h");
 });
 
 pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
@@ -87,6 +88,106 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
                 std.debug.print("{x:0>2} ", .{data[i]});
             }
 
+            var raw_frame = c.av_frame_alloc() orelse {
+                sync_data.pop() catch {};
+                continue;
+            };
+            defer c.av_frame_free(&raw_frame);
+
+            raw_frame.*.format = c.AV_PIX_FMT_YUYV422;
+            raw_frame.*.width = 640;
+            raw_frame.*.height = 480;
+
+            if (0 > c.av_frame_get_buffer(raw_frame, 0)) {
+                std.debug.print("Failed to allocate raw_frame buffer\n", .{});
+                sync_data.pop() catch {};
+                continue;
+            }
+
+            const buffer_index = buff_num.?;
+            const yuyv_data: [*]const u8 = @ptrCast(sync_data.buffers[buffer_index].start);
+            const yuyv_size = sync_data.buffers[buffer_index].bytes_used;
+
+            std.mem.copyForwards(u8, raw_frame.*.data[0][0..yuyv_size], yuyv_data[0..yuyv_size]);
+            raw_frame.*.linesize[0] = 640 * 2;
+
+            var yuv420_frame = c.av_frame_alloc() orelse {
+                sync_data.pop() catch {};
+                continue;
+            };
+            defer c.av_frame_free(&yuv420_frame);
+
+            yuv420_frame.*.format = c.AV_PIX_FMT_YUV420P;
+            yuv420_frame.*.width = 640;
+            yuv420_frame.*.height = 480;
+            if (0 > c.av_frame_get_buffer(yuv420_frame, 0)) {
+                std.debug.print("Failed to allocate yuv420_frame buffer\n", .{});
+                sync_data.pop() catch {};
+                continue;
+            }
+
+            //START PURE AI
+
+            // Create or reuse SwsContext (create once outside loop in real version)
+            const sws_ctx: ?*c.struct_SwsContext = c.sws_getContext(
+                640,
+                480,
+                c.AV_PIX_FMT_YUYV422,
+                640,
+                480,
+                c.AV_PIX_FMT_YUV420P,
+                c.SWS_BILINEAR,
+                null,
+                null,
+                null,
+            );
+
+            if (sws_ctx == null) {
+                std.debug.print("Failed to create SwsContext\n", .{});
+                sync_data.pop() catch {};
+                continue;
+            }
+
+            _ = c.sws_scale(sws_ctx, &raw_frame.*.data[0], &raw_frame.*.linesize[0], 0, 480, &yuv420_frame.*.data[0], &yuv420_frame.*.linesize[0]);
+
+            // Important: set presentation timestamp
+            yuv420_frame.*.pts = @intCast(c.av_rescale_q(@intCast(current_time_stamp.toNanoseconds()), .{ .num = 1, .den = 1_000_000_000 }, encoder_context.time_base));
+
+            // 3. Send frame to encoder
+            if (c.avcodec_send_frame(encoder_context, yuv420_frame) < 0) {
+                std.debug.print("Error sending frame to encoder\n", .{});
+            }
+
+            // 4. Receive encoded packets
+            var packet: c.AVPacket = std.mem.zeroes(c.AVPacket);
+            c.av_init_packet(&packet);
+            packet.data = null;
+            packet.size = 0;
+
+            while (true) {
+                const ret = c.avcodec_receive_packet(encoder_context, &packet);
+                if (ret == c.AVERROR(c.EAGAIN) or ret == c.AVERROR_EOF) {
+                    break;
+                }
+                if (ret < 0) {
+                    std.debug.print("Error receiving packet from encoder\n", .{});
+                    break;
+                }
+
+                // Rescale packet timestamps to stream time base
+                packet.pts = c.av_rescale_q_rnd(packet.pts, encoder_context.time_base, output_context.*.streams[0].*.time_base, c.AV_ROUND_NEAR_INF);
+                packet.dts = c.av_rescale_q_rnd(packet.dts, encoder_context.time_base, output_context.*.streams[0].*.time_base, c.AV_ROUND_NEAR_INF);
+                packet.duration = c.av_rescale_q(packet.duration, encoder_context.time_base, output_context.*.streams[0].*.time_base);
+
+                // Write packet to file
+                _ = c.av_interleaved_write_frame(output_context, &packet);
+
+                c.av_packet_unref(&packet);
+            }
+
+            // Clean up SwsContext later (move outside loop)
+            c.sws_freeContext(sws_ctx);
+
             std.debug.print("Freeing buffer...\n", .{});
             sync_data.pop() catch |err| {
                 std.debug.print("**Error received when freeing frame\n", .{});
@@ -95,6 +196,8 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
             };
         }
     }
+
+    // END PURE AI
 
     {
         sync_data.mutex.lock();

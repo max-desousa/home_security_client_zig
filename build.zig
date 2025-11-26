@@ -72,6 +72,7 @@ pub fn build(b: *std.Build) void {
     exe.linkSystemLibrary("avformat");
     exe.linkSystemLibrary("avcodec");
     exe.linkSystemLibrary("avutil");
+    exe.linkSystemLibrary("swscale");
 
     const options = b.addOptions();
     const number_of_cores = b.option(usize, "number_of_cores", "Number of CPU cores to use for building") orelse std.Thread.getCpuCount() catch 1;
