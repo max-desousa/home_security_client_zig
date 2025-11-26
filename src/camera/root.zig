@@ -11,15 +11,22 @@ const c = @cImport({
     @cInclude("string.h");
 });
 
-pub const buffer = struct {
-    start: *anyopaque,
-    length: usize,
+const SetupState = enum {
+    Naked,
+    DeviceNameKnown,
+    DeviceNameConfirmed,
+    DeviceOpened,
+    DeviceVideoSupportConfirmed,
+    DeviceCropCapSet,
+    DeviceVideoConditionsSet,
+    DeviceMemorySetup,
+    DeviceBuffersQueued,
 };
 
 file_descriptor: ?c_int,
 device_name: ?[*:0]const u8,
 allocator: std.mem.Allocator,
-buffers: []buffer = undefined,
+buffers: []sync.CameraBuffer = undefined,
 n_buffers: u8 = undefined,
 private_head: usize = 0,
 private_tail: usize = 0,
@@ -28,9 +35,15 @@ pub fn run(dev_name: [*:0]const u8, allocator: std.mem.Allocator, sync_data: *sy
     var cam = init(dev_name, allocator) catch |err| {
         std.debug.print("Error initializing camera...\n", .{});
         std.debug.print("\tError code: {any}\n", .{err});
+        {
+            sync_data.mutex.lock();
+            defer sync_data.mutex.unlock();
+            sync_data.sync_error = sync.ThreadingErrors.CameraCouldNotStart;
+        }
         return;
     };
     defer cam.deinit();
+    sync_data.buffers = cam.buffers;
     cam.infinite_capture(sync_data);
 }
 
@@ -268,9 +281,9 @@ fn initialize_mmap(self: *Camera) !void {
         return error.BadStructInstance;
     }
 
+    //Initializing request for 32 buffers from camera.
     var req: c.struct_v4l2_requestbuffers = std.mem.zeroes(c.struct_v4l2_requestbuffers);
-
-    req.count = 50;
+    req.count = 32;
     req.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
     req.memory = c.V4L2_MEMORY_MMAP;
 
@@ -284,37 +297,43 @@ fn initialize_mmap(self: *Camera) !void {
         return error.InsufficientBufferMemory;
     }
 
-    self.buffers = try self.allocator.alloc(buffer, req.count);
-    var n_buffers: u8 = 0;
+    self.buffers = try self.allocator.alloc(sync.CameraBuffer, req.count);
+    errdefer self.allocator.free(self.buffers);
 
-    for (self.buffers) |b| {
-        var buf: c.struct_v4l2_buffer = std.mem.zeroes(c.struct_v4l2_buffer);
+    for (0..req.count) |i| {
+        var query_buf: c.struct_v4l2_buffer = std.mem.zeroes(c.struct_v4l2_buffer);
 
-        buf.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        buf.memory = c.V4L2_MEMORY_MMAP;
-        buf.index = n_buffers;
+        query_buf.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        query_buf.memory = c.V4L2_MEMORY_MMAP;
+        query_buf.index = @intCast(i);
 
-        if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_QUERYBUF, &buf)) {
+        if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_QUERYBUF, &query_buf)) {
             std.debug.print("Failed to query buffer info.\n", .{});
             return error.QueryBufferFailed;
         }
 
-        self.buffers[n_buffers].length = b.length;
-        self.buffers[n_buffers].start = std.c.mmap(
+        const length = query_buf.length;
+        const start = std.c.mmap(
             null,
-            buf.length,
+            length,
             std.c.PROT.READ | std.c.PROT.WRITE,
             .{ .TYPE = .SHARED },
             self.file_descriptor.?,
-            buf.m.offset,
+            query_buf.m.offset,
         );
 
-        if (std.c.MAP_FAILED == self.buffers[n_buffers].start) {
+        if (std.c.MAP_FAILED == start) {
             std.debug.print("Failed to map buffer to user space.\n", .{});
+            //for (0..i) |j| {
+            //    _ = std.c.munmap(self.buffers[j].start, self.buffers[j].length);
+            //}
             return error.MmapFailed;
         }
 
-        n_buffers += 1;
+        self.buffers[i] = .{
+            .start = start,
+            .length = length,
+        };
     }
 }
 
@@ -363,15 +382,23 @@ pub fn capture_single_frame(self: Camera) !?u8 {
     }
     std.debug.print("Captured frame in buffer index {d}.\n", .{buf.index});
 
+    std.debug.print("Updating camera data for recent capture\n:", .{});
+    std.debug.print("\tUpdating buffer {d}'s bytes used (val = {d})...\n", .{ buf.index, buf.bytesused });
+    self.buffers[buf.index].bytes_used = buf.bytesused;
+    //std.debug.print("\tUpdating buffer {d}'s timestamp...\n", .{buf.index});
+    //self.buffers[buf.index].time_stamp = buf.timestamp;
+    std.debug.print("\tUpdating buffer {d}'s sequence...\n", .{buf.index});
+    self.buffers[buf.index].sequence = buf.sequence;
+
     std.debug.print("Sending Frame data for encoding...\n", .{});
     return @intCast(buf.index);
 }
 
-fn release_buffer(self: Camera, buffer_index: u8) !void {
+fn release_buffer(self: Camera, buffer_index: u32) !void {
     var buf: c.struct_v4l2_buffer = std.mem.zeroes(c.struct_v4l2_buffer);
     buf.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
     buf.memory = c.V4L2_MEMORY_MMAP;
-    buf.index = @intCast(buffer_index);
+    buf.index = buffer_index;
 
     if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_QBUF, &buf)) {
         std.debug.print("Failed to re-queue buffer.\n", .{});

@@ -76,6 +76,17 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
         const buff_num = sync_data.get_first();
         if (null != buff_num) {
             std.debug.print("Encoder got a frame in buffer: {d}\n", .{buff_num.?});
+
+            // Doing something with buffer data.
+            std.debug.print("frame data:\n", .{});
+            const data: [*]u8 = @ptrCast(sync_data.buffers[buff_num.?].start);
+            const len = sync_data.buffers[buff_num.?].bytes_used;
+            const preview_len = @min(len, 64);
+            for (0..preview_len) |i| {
+                if (i % 16 == 0) std.debug.print("\n {d:0>4}: ", .{i});
+                std.debug.print("{x:0>2} ", .{data[i]});
+            }
+
             std.debug.print("Freeing buffer...\n", .{});
             sync_data.pop() catch |err| {
                 std.debug.print("**Error received when freeing frame\n", .{});

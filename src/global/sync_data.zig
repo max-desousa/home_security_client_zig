@@ -1,4 +1,16 @@
 const std = @import("std");
+const c = @cImport({
+    @cInclude("linux/videodev2.h");
+});
+
+//Buffer used by cameras.
+pub const CameraBuffer = struct {
+    start: *anyopaque,
+    length: u32,
+    bytes_used: u32 = 0,
+    //time_stamp: c.struct_timeval = std.mem.zeroes(c.struct_timeval),
+    sequence: u32 = 0,
+};
 
 pub const ThreadingErrors = error{
     CameraCouldNotStart,
@@ -19,7 +31,8 @@ pub const SynchronousData = struct {
     const Self = @This();
     const BUFFER_SIZE = 32;
     mutex: std.Thread.Mutex = .{},
-    buffers: [BUFFER_SIZE]u8 = std.mem.zeroes([BUFFER_SIZE]u8),
+    buffers: []CameraBuffer = undefined,
+    buffers_ready_to_encode: [BUFFER_SIZE]u8 = std.mem.zeroes([BUFFER_SIZE]u8),
     //free_flags: std.bit_set = std.bit_set.IntegerBitSet(BUFFER_SIZE).initEmpty(),
     free_flags: std.bit_set.IntegerBitSet(BUFFER_SIZE) = std.bit_set.IntegerBitSet(BUFFER_SIZE).initEmpty(),
     sync_error: ?ThreadingErrors = null,
@@ -32,10 +45,9 @@ pub const SynchronousData = struct {
         if (self.head == self.tail) {
             return error.Empty;
         }
-        const value = self.buffers[self.tail];
+        const value = self.buffers_ready_to_encode[self.tail];
         self.tail = ((self.tail + 1) % BUFFER_SIZE);
         self.free_flags.set(value);
-        //return value;
     }
 
     pub fn push(self: *Self, buf_num: u8) !void {
@@ -46,7 +58,7 @@ pub const SynchronousData = struct {
             return error.Full;
         }
         self.head = next_head;
-        self.buffers[self.head] = buf_num;
+        self.buffers_ready_to_encode[self.head] = buf_num;
     }
 
     pub fn get_first(self: *Self) ?u8 {
