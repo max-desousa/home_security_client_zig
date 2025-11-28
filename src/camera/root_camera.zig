@@ -1,24 +1,122 @@
-const Camera = @This();
+pub const Camera = @This();
 
 const std = @import("std");
-const file_system = @import("file_system");
-const c = @cImport({
-    @cInclude("linux/videodev2.h");
-    @cInclude("errno.h");
-    @cInclude("sys/ioctl.h");
-    @cInclude("string.h");
-});
+const debug = @import("debug");
+const sync = @import("sync_data");
+const c = @import("c_imports").c;
 
-pub const buffer = struct {
-    start: *anyopaque,
-    length: usize,
+const SetupState = enum {
+    Naked,
+    DeviceNameKnown,
+    DeviceNameConfirmed,
+    DeviceOpened,
+    DeviceVideoSupportConfirmed,
+    DeviceCropCapSet,
+    DeviceVideoConditionsSet,
+    DeviceMemorySetup,
+    DeviceBuffersQueued,
 };
 
 file_descriptor: ?c_int,
 device_name: ?[*:0]const u8,
 allocator: std.mem.Allocator,
-buffers: []buffer = undefined,
+buffers: []sync.CameraBuffer = undefined,
 n_buffers: u8 = undefined,
+private_head: usize = 0,
+private_tail: usize = 0,
+
+pub fn run(dev_name: [*:0]const u8, allocator: std.mem.Allocator, sync_data: *sync.SynchronousData) void {
+    var cam = init(dev_name, allocator) catch |err| {
+        std.debug.print("Error initializing camera...\n", .{});
+        std.debug.print("\tError code: {any}\n", .{err});
+        {
+            sync_data.mutex.lock();
+            defer sync_data.mutex.unlock();
+            sync_data.sync_error = sync.ThreadingErrors.CameraCouldNotStart;
+        }
+        return;
+    };
+    defer cam.deinit();
+    sync_data.buffers = cam.buffers;
+    cam.infinite_capture(sync_data);
+}
+
+pub fn infinite_capture(self: *Camera, sync_data: *sync.SynchronousData) void {
+    self.start_capturing() catch |err| {
+        std.debug.print("There was an error starting the capturing of frames with the camera...\n", .{});
+        std.debug.print("\tError code: {any}\n", .{err});
+        {
+            sync_data.mutex.lock();
+            defer sync_data.mutex.unlock();
+            sync_data.sync_error = sync.ThreadingErrors.CameraCouldNotStart;
+        }
+        return;
+    };
+    while (true) {
+        if (null != sync_data.sync_error) {
+            std.debug.print("External error - closing camera thread...\n", .{});
+            std.debug.print("\tExternal error was: {any}\n", .{sync_data.sync_error.?});
+            return;
+        }
+
+        if (0 != sync_data.free_flags.count()) {
+            sync_data.mutex.lock();
+            defer sync_data.mutex.unlock();
+            while (sync_data.free_flags.findFirstSet()) |num| {
+                sync_data.free_flags.unset(num);
+                self.release_buffer(@intCast(num)) catch |err| {
+                    std.debug.print("Error Freeing buffer...\n", .{});
+                    std.debug.print("\tError code: {any}\n", .{err});
+                    break;
+                };
+            }
+        }
+
+        const frame_captured = self.capture_single_frame() catch |err| {
+            std.debug.print("Error capturing a frame from the camera...\n", .{});
+            std.debug.print("\tError received was: {any}\n", .{err});
+            {
+                sync_data.mutex.lock();
+                defer sync_data.mutex.unlock();
+                sync_data.sync_error = sync.ThreadingErrors.CameraCouldNotCaptureFrame;
+            }
+            return;
+        };
+
+        if (null == frame_captured) continue;
+
+        const shared = self.publish_frame_to_sync_data(frame_captured.?, sync_data);
+        if (false == shared) {
+            sync_data.mutex.lock();
+            defer sync_data.mutex.unlock();
+            sync_data.sync_error = sync.ThreadingErrors.CameraRunOutOfBuffers;
+            std.debug.print("Camera ran out of buffers... aborting\n", .{});
+            return;
+        }
+    }
+}
+
+fn publish_frame_to_sync_data(self: *Camera, buff_num: u8, sync_data: *sync.SynchronousData) bool {
+    sync_data.push(@intCast(buff_num)) catch return false;
+    self.private_head = sync_data.head;
+    return true;
+}
+
+fn check_and_release_buffer(self: *Camera, sync_data: *sync.SynchronousData) void {
+    if (self.private_tail == sync_data.tail) {
+        return;
+    }
+
+    self.release_buffer(self.private_tail) catch |err| {
+        sync_data.mutex.lock();
+        defer sync_data.mutex.unlock();
+        sync_data.sync_error = sync.ThreadingErrors.CameraCouldNotFreeBuffer;
+        std.debug.print("Could not free buffer...\n", .{});
+        std.debug.print("\tError received: {any}\n", .{err});
+        return;
+    };
+    self.private_tail = ((self.private_tail + 1) % sync_data.BUFFER_SIZE);
+}
 
 pub fn init(dev_name: [*:0]const u8, allocator: std.mem.Allocator) !Camera {
     var camera: Camera = .{
@@ -177,9 +275,9 @@ fn initialize_mmap(self: *Camera) !void {
         return error.BadStructInstance;
     }
 
+    //Initializing request for 32 buffers from camera.
     var req: c.struct_v4l2_requestbuffers = std.mem.zeroes(c.struct_v4l2_requestbuffers);
-
-    req.count = 4;
+    req.count = 32;
     req.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
     req.memory = c.V4L2_MEMORY_MMAP;
 
@@ -193,41 +291,47 @@ fn initialize_mmap(self: *Camera) !void {
         return error.InsufficientBufferMemory;
     }
 
-    self.buffers = try self.allocator.alloc(buffer, req.count);
-    var n_buffers: u8 = 0;
+    self.buffers = try self.allocator.alloc(sync.CameraBuffer, req.count);
+    errdefer self.allocator.free(self.buffers);
 
-    for (self.buffers) |b| {
-        var buf: c.struct_v4l2_buffer = std.mem.zeroes(c.struct_v4l2_buffer);
+    for (0..req.count) |i| {
+        var query_buf: c.struct_v4l2_buffer = std.mem.zeroes(c.struct_v4l2_buffer);
 
-        buf.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        buf.memory = c.V4L2_MEMORY_MMAP;
-        buf.index = n_buffers;
+        query_buf.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        query_buf.memory = c.V4L2_MEMORY_MMAP;
+        query_buf.index = @intCast(i);
 
-        if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_QUERYBUF, &buf)) {
+        if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_QUERYBUF, &query_buf)) {
             std.debug.print("Failed to query buffer info.\n", .{});
             return error.QueryBufferFailed;
         }
 
-        self.buffers[n_buffers].length = b.length;
-        self.buffers[n_buffers].start = std.c.mmap(
+        const length = query_buf.length;
+        const start = std.c.mmap(
             null,
-            buf.length,
+            length,
             std.c.PROT.READ | std.c.PROT.WRITE,
             .{ .TYPE = .SHARED },
             self.file_descriptor.?,
-            buf.m.offset,
+            query_buf.m.offset,
         );
 
-        if (std.c.MAP_FAILED == self.buffers[n_buffers].start) {
+        if (std.c.MAP_FAILED == start) {
             std.debug.print("Failed to map buffer to user space.\n", .{});
+            //for (0..i) |j| {
+            //    _ = std.c.munmap(self.buffers[j].start, self.buffers[j].length);
+            //}
             return error.MmapFailed;
         }
 
-        n_buffers += 1;
+        self.buffers[i] = .{
+            .start = start,
+            .length = length,
+        };
     }
 }
 
-pub fn start_capturing(self: Camera) !void {
+fn start_capturing(self: Camera) !void {
     if ((null == self.file_descriptor) or
         (2 > self.buffers.len))
     {
@@ -254,13 +358,7 @@ pub fn start_capturing(self: Camera) !void {
     }
 }
 
-pub fn capture_frames_infinitely(self: Camera) !void {
-    while (true) {
-        try self.capture_single_frame();
-    }
-}
-
-pub fn capture_single_frame(self: Camera) !void {
+pub fn capture_single_frame(self: Camera) !?u8 {
     if (null == self.file_descriptor) {
         return error.BadStructInstance;
     }
@@ -271,15 +369,30 @@ pub fn capture_single_frame(self: Camera) !void {
 
     if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_DQBUF, &buf)) {
         if (c.EAGAIN == std.c._errno().*) {
-            //std.debug.print("No frame available yet, try again.\n", .{});
-            return;
+            return null;
         }
         std.debug.print("Failed to dequeue buffer.\n", .{});
         return error.DequeueBufferFailed;
     }
     std.debug.print("Captured frame in buffer index {d}.\n", .{buf.index});
 
-    std.debug.print("Processing frame data...\n", .{});
+    std.debug.print("Updating camera data for recent capture\n:", .{});
+    std.debug.print("\tUpdating buffer {d}'s bytes used (val = {d})...\n", .{ buf.index, buf.bytesused });
+    self.buffers[buf.index].bytes_used = buf.bytesused;
+    //std.debug.print("\tUpdating buffer {d}'s timestamp...\n", .{buf.index});
+    self.buffers[buf.index].time_stamp = buf.timestamp;
+    std.debug.print("\tUpdating buffer {d}'s sequence...\n", .{buf.index});
+    self.buffers[buf.index].sequence = buf.sequence;
+
+    std.debug.print("Sending Frame data for encoding...\n", .{});
+    return @intCast(buf.index);
+}
+
+fn release_buffer(self: Camera, buffer_index: u32) !void {
+    var buf: c.struct_v4l2_buffer = std.mem.zeroes(c.struct_v4l2_buffer);
+    buf.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    buf.memory = c.V4L2_MEMORY_MMAP;
+    buf.index = buffer_index;
 
     if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_QBUF, &buf)) {
         std.debug.print("Failed to re-queue buffer.\n", .{});

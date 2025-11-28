@@ -4,27 +4,58 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const mod_file_system = b.createModule(.{
-        .root_source_file = b.path("src/file_system/root.zig"),
+    const mod_c_imports = b.createModule(.{
+        .root_source_file = b.path("src/imports/c_imports.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    const mod_camera = b.createModule(.{
-        .root_source_file = b.path("src/camera/root.zig"),
+    const mod_sync_data = b.createModule(.{
+        .root_source_file = b.path("src/global/sync_data.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{
-            .{ .name = "file_system", .module = mod_file_system },
+            .{ .name = "c_imports", .module = mod_c_imports },
+        },
+    });
+
+    const mod_debug = b.createModule(.{
+        .root_source_file = b.path("src/debug/root_debug.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const mod_encoding = b.createModule(.{
+        .root_source_file = b.path("src/encoding/root_encoding.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "debug", .module = mod_debug },
+            .{ .name = "sync_data", .module = mod_sync_data },
+            .{ .name = "c_imports", .module = mod_c_imports },
+        },
+    });
+
+    const mod_camera = b.createModule(.{
+        .root_source_file = b.path("src/camera/root_camera.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "sync_data", .module = mod_sync_data },
+            .{ .name = "debug", .module = mod_debug },
+            .{ .name = "c_imports", .module = mod_c_imports },
         },
     });
 
     const mod_cores = b.createModule(.{
-        .root_source_file = b.path("src/core_layouts/root.zig"),
+        .root_source_file = b.path("src/core_layouts/root_cores.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{
             .{ .name = "camera", .module = mod_camera },
+            .{ .name = "sync_data", .module = mod_sync_data },
+            .{ .name = "encoding", .module = mod_encoding },
+            .{ .name = "debug", .module = mod_debug },
         },
     });
 
@@ -36,11 +67,16 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .imports = &.{
                 .{ .name = "core_layouts", .module = mod_cores },
+                .{ .name = "debug", .module = mod_debug },
             },
         }),
     });
 
     exe.linkLibC();
+    exe.linkSystemLibrary("libavformat");
+    exe.linkSystemLibrary("libavcodec");
+    exe.linkSystemLibrary("libavutil");
+    exe.linkSystemLibrary("libswscale");
 
     const options = b.addOptions();
     const number_of_cores = b.option(usize, "number_of_cores", "Number of CPU cores to use for building") orelse std.Thread.getCpuCount() catch 1;

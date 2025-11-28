@@ -1,15 +1,44 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const camera = @import("camera");
+const encoding = @import("encoding");
+const debug = @import("debug");
+const sync = @import("sync_data");
+
+const SIGNALS = [_]i32{
+    std.os.SIG.INT,
+};
 
 pub fn perfect_core_layout() !void {
     // Implementation for perfect core layout
-    std.debug.print("Using perfect core layout\n", .{});
-    const gpa = std.heap.c_allocator;
+    debug.print("Using perfect core layout\n", .{});
 
-    var cam = try camera.init("/dev/video0", gpa);
-    defer cam.deinit();
+    debug.print("====================\n", .{});
+    debug.print("Initializing thread pool and allocators... (using new Io concurrent)\n", .{});
+    const allocator = blk: {
+        if (.ReleaseFast == builtin.mode) {
+            break :blk std.heap.smp_allocator;
+        } else {
+            var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
+            break :blk gpa.allocator();
+        }
+    };
 
-    std.debug.print("Number of buffers in camera: {d}\n", .{cam.buffers.len});
-    try cam.start_capturing();
-    try cam.capture_frames_infinitely();
+    var pool: std.Thread.Pool = undefined;
+    try std.Thread.Pool.init(&pool, .{ .allocator = allocator });
+    defer pool.deinit();
+
+    debug.print("====================\n", .{});
+
+    debug.print("====================\n", .{});
+    debug.print("Establishing synchronous data\n", .{});
+    var sync_data: sync.SynchronousData = .{};
+
+    debug.print("====================\n", .{});
+
+    debug.print("Starting encoder thread\n", .{});
+    try pool.spawn(encoding.encoding_thread, .{&sync_data});
+
+    debug.print("Starting capture thread\n", .{});
+    try pool.spawn(camera.run, .{ "/dev/video0", allocator, &sync_data });
 }
