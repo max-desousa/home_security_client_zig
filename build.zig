@@ -4,10 +4,19 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const mod_c_imports = b.createModule(.{
+        .root_source_file = b.path("src/imports/c_imports.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const mod_sync_data = b.createModule(.{
         .root_source_file = b.path("src/global/sync_data.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{
+            .{ .name = "c_imports", .module = mod_c_imports },
+        },
     });
 
     const mod_debug = b.createModule(.{
@@ -23,6 +32,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "debug", .module = mod_debug },
             .{ .name = "sync_data", .module = mod_sync_data },
+            .{ .name = "c_imports", .module = mod_c_imports },
         },
     });
 
@@ -40,6 +50,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "file_system", .module = mod_file_system },
             .{ .name = "sync_data", .module = mod_sync_data },
             .{ .name = "debug", .module = mod_debug },
+            .{ .name = "c_imports", .module = mod_c_imports },
         },
     });
 
@@ -69,10 +80,10 @@ pub fn build(b: *std.Build) void {
     });
 
     exe.linkLibC();
-    exe.linkSystemLibrary("avformat");
-    exe.linkSystemLibrary("avcodec");
-    exe.linkSystemLibrary("avutil");
-    exe.linkSystemLibrary("swscale");
+    exe.linkSystemLibrary("libavformat");
+    exe.linkSystemLibrary("libavcodec");
+    exe.linkSystemLibrary("libavutil");
+    exe.linkSystemLibrary("libswscale");
 
     const options = b.addOptions();
     const number_of_cores = b.option(usize, "number_of_cores", "Number of CPU cores to use for building") orelse std.Thread.getCpuCount() catch 1;

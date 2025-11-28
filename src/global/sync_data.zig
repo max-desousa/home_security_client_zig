@@ -1,7 +1,5 @@
 const std = @import("std");
-const c = @cImport({
-    @cInclude("linux/videodev2.h");
-});
+const c = @import("c_imports").c;
 
 //Buffer used by cameras.
 pub const CameraBuffer = struct {

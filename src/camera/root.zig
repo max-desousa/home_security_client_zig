@@ -4,12 +4,7 @@ const std = @import("std");
 const file_system = @import("file_system");
 const debug = @import("debug");
 const sync = @import("sync_data");
-const c = @cImport({
-    @cInclude("linux/videodev2.h");
-    @cInclude("errno.h");
-    @cInclude("sys/ioctl.h");
-    @cInclude("string.h");
-});
+const c = @import("c_imports").c;
 
 const SetupState = enum {
     Naked,

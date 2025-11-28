@@ -1,13 +1,8 @@
-// src/encoding/root.zig
+const c = @import("c_imports").c;
+
 const std = @import("std");
 const debug = @import("debug");
 const sync = @import("sync_data");
-const c = @cImport({
-    @cInclude("libavformat/avformat.h");
-    @cInclude("libavcodec/avcodec.h");
-    @cInclude("libavutil/opt.h");
-    @cInclude("libswscale/swscale.h");
-});
 
 pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
     debug.print("\tLooking for encoder...\n", .{});
