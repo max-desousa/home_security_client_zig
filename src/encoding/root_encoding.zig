@@ -4,162 +4,193 @@ const debug = @import("debug");
 const sync = @import("sync_data");
 const c = @import("c_imports").c;
 
+//##############################################################################
+// Function: set_encoder_context
+//
+// Description: Sets up the encoder context with desired parameters. Hard coded
+//             for 640x480 YUV420P at 30fps for now - will make configurable
+//             later.
+//##############################################################################
+fn set_encoder_context(encoder: *c.struct_AVCodec) ?*c.struct_AVCodecContext {
+    var enc_ctx : *c.struct_AVCodecContext = c.avcodec_alloc_context3(@ptrCast(encoder)) orelse {
+        return null;
+    };
+
+    // ------ Encoder parameters ------
+    enc_ctx.width = 640;
+    enc_ctx.height = 480;
+    enc_ctx.time_base = .{ .num = 1, .den = 30 };
+    enc_ctx.framerate = .{ .num = 30, .den = 1 };
+    enc_ctx.pix_fmt = c.AV_PIX_FMT_YUV420P;
+    enc_ctx.bit_rate = 2_000_000;
+    enc_ctx.gop_size = 30;
+    enc_ctx.max_b_frames = 0;
+    enc_ctx.flags |= c.AV_CODEC_FLAG_GLOBAL_HEADER;
+
+    // ultrafast + zerolatency = perfect for security cam
+    _ = c.av_opt_set(enc_ctx.priv_data, "preset", "ultrafast", 0);
+    _ = c.av_opt_set(enc_ctx.priv_data, "tune",   "zerolatency", 0);
+
+    return enc_ctx;
+}
+
+//##############################################################################
+// Function: encoding_thread
+//
+// Description: This is the main entry point for running the endless encoding
+//              loop for the captured frames.
+//##############################################################################
 pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
     debug.print("\tLooking for H.264 encoder...\n", .{});
 
-    const encoder = c.avcodec_find_encoder(c.AV_CODEC_ID_H264) orelse {
+    // Step 1: Find the H.264 encoder
+    const encoder : *c.struct_AVCodec = c.avcodec_find_encoder(c.AV_CODEC_ID_H264) orelse {
         set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotBeFound);
         return;
     };
 
-    var enc_ctx = c.avcodec_alloc_context3(encoder) orelse {
+    // Step 2: Set up the encoder context
+    var enc_ctx : *c.struct_AVCodecContext = set_encoder_context(encoder) orelse {
         set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotSetContext);
         return;
     };
-    defer c.avcodec_free_context(&enc_ctx);
+    defer c.avcodec_free_context(@ptrCast(&enc_ctx));
 
-    // ------ Encoder parameters ------
-    enc_ctx.*.width = 640;
-    enc_ctx.*.height = 480;
-    enc_ctx.*.time_base = .{ .num = 1, .den = 30 };
-    enc_ctx.*.framerate = .{ .num = 30, .den = 1 };
-    enc_ctx.*.pix_fmt = c.AV_PIX_FMT_YUV420P;
-    enc_ctx.*.bit_rate = 2_000_000;
-    enc_ctx.*.gop_size = 30;
-    enc_ctx.*.max_b_frames = 0;
-    enc_ctx.*.flags |= c.AV_CODEC_FLAG_GLOBAL_HEADER;
-
-    // ultrafast + zerolatency = perfect for security cam
-    _ = c.av_opt_set(enc_ctx.*.priv_data, "preset", "ultrafast", 0);
-    _ = c.av_opt_set(enc_ctx.*.priv_data, "tune",   "zerolatency", 0);
-
-    if (c.avcodec_open2(enc_ctx, encoder, null) < 0) {
+    // Step 3: Open the encoder (verify paramters don't cause issues)
+    if (c.avcodec_open2(@ptrCast(enc_ctx), encoder, null) < 0) {
         set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotOpenCodec);
         return;
     }
 
-    // ------ Output format (MP4) ------
-    var fmt_ctx: ?*c.struct_AVFormatContext = null;
-    if (c.avformat_alloc_output_context2(&fmt_ctx, null, null, "output.mp4") < 0) {
-        set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotSetOutputContext);
-        return;
-    }
-    const oc = fmt_ctx.?;
-    defer c.avformat_free_context(oc);
+    for (0..5) |i| {
+        var filename_buffer : [20]u8 = undefined;
+        const filename = std.fmt.bufPrintSentinel(&filename_buffer, "test_output_{}.mp4", .{i}, 0) catch {
+            set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotCreateFmtCtx);
+            return;
+        };
+        var nullable_output_fmt_ctx: ?*c.struct_AVFormatContext = null;
+        if (c.avformat_alloc_output_context2(@ptrCast(&nullable_output_fmt_ctx), null, null, filename) < 0) {
+            set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotSetOutputContext);
+            return;
+        }
+        const out_ctx : *c.struct_AVFormatContext = nullable_output_fmt_ctx.?;
+        defer c.avformat_free_context(@ptrCast(out_ctx));
 
-    const stream = c.avformat_new_stream(oc, null) orelse {
-        set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotSetOutputContext);
-        return;
-    };
-    // THIS LINE WAS WRONG BEFORE (missing .*)
-    if (c.avcodec_parameters_from_context(stream.*.codecpar, enc_ctx) < 0) {
-        set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotSetOutputContext);
-        return;
-    }
-    stream.*.time_base = enc_ctx.*.time_base;
+        const stream : *c.struct_AVStream = c.avformat_new_stream(@ptrCast(out_ctx), null) orelse {
+            set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotSetOutputContext);
+            return;
+        };
+        // THIS LINE WAS WRONG BEFORE (missing .*)
+        if (c.avcodec_parameters_from_context(@ptrCast(stream.codecpar), @ptrCast(enc_ctx)) < 0) {
+            set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotSetOutputContext);
+            return;
+        }
+        stream.time_base = enc_ctx.time_base;
+        //
+        // ------ Open file ------
+        if (c.avio_open(@ptrCast(&out_ctx.pb), filename, c.AVIO_FLAG_WRITE) < 0) {
+            debug.print("Could not open output.mp4 for writing\n", .{});
+            return;
+        }
+        defer _ = c.avio_closep(@ptrCast(&out_ctx.pb));
 
-    // ------ Open file ------
-    if (c.avio_open(&oc.*.pb, "output.mp4", c.AVIO_FLAG_WRITE) < 0) {
-        debug.print("Could not open output.mp4 for writing\n", .{});
-        return;
-    }
-    defer _ = c.avio_closep(&oc.*.pb);
-
-    // ------ Write file header ------
-    if (c.avformat_write_header(oc, null) < 0) {
-        debug.print("avformat_write_header failed\n", .{});
-        return;
-    }
-
-    var frame_count: i64 = 0;
-
-    // Reuse this for every frame (huge speedup)
-    var sws_ctx: ?*c.struct_SwsContext = null;
-    defer if (sws_ctx) |ctx| c.sws_freeContext(ctx);
-
-    while (true) {
-        // 10-second limit
-        if (frame_count >= 30 * 10) break;
-
-        const buf_idx = sync_data.get_first() orelse continue;
-        const buffer_index = buf_idx;
-
-        // ----- Raw YUYV frame -----
-        var src_frame = c.av_frame_alloc() orelse { sync_data.pop() catch {}; continue; };
-        defer c.av_frame_free(&src_frame);
-
-        src_frame.*.format = c.AV_PIX_FMT_YUYV422;
-        src_frame.*.width  = 640;
-        src_frame.*.height = 480;
-        if (c.av_frame_get_buffer(src_frame, 0) < 0) {
-            sync_data.pop() catch {};
-            continue;
+        // ------ Write file header ------
+        if (c.avformat_write_header(@ptrCast(out_ctx), null) < 0) {
+            debug.print("avformat_write_header failed\n", .{});
+            return;
         }
 
-        const yuyv_ptr: [*c]const u8 = @ptrCast(sync_data.buffers[buffer_index].start);
-        const yuyv_len = sync_data.buffers[buffer_index].bytes_used;
-        @memcpy(src_frame.*.data[0], yuyv_ptr[0..yuyv_len]);
-        src_frame.*.linesize[0] = 640 * 2;
+        var frame_count: i64 = 0;
 
-        // ----- Convert to YUV420P -----
-        var dst_frame = c.av_frame_alloc() orelse { sync_data.pop() catch {}; continue; };
-        defer c.av_frame_free(&dst_frame);
-
-        dst_frame.*.format = c.AV_PIX_FMT_YUV420P;
-        dst_frame.*.width  = 640;
-        dst_frame.*.height = 480;
-        if (c.av_frame_get_buffer(dst_frame, 0) < 0) {
-            sync_data.pop() catch {};
-            continue;
-        }
-
-        // Create sws context once
-        if (sws_ctx == null) {
-            sws_ctx = c.sws_getContext(
-                640, 480, c.AV_PIX_FMT_YUYV422,
-                640, 480, c.AV_PIX_FMT_YUV420P,
-                c.SWS_BILINEAR, null, null, null,
-            );
-        }
-
-        // THIS IS THE ONLY CORRECT WAY IN ZIG
-        _ = c.sws_scale(sws_ctx,
-            @ptrCast(&src_frame.*.data),
-            @ptrCast(&src_frame.*.linesize),
-            0, 480,
-            @ptrCast(&dst_frame.*.data),
-            @ptrCast(&dst_frame.*.linesize));
-
-        dst_frame.*.pts = frame_count;
-        frame_count += 1;
-
-        // ----- Encode -----
-        _ = c.avcodec_send_frame(enc_ctx, dst_frame);
-
-        var pkt: c.AVPacket = undefined;
-        c.av_init_packet(&pkt);
+        // Reuse this for every frame (huge speedup)
+        var sws_ctx: ?*c.struct_SwsContext = null;
+        defer if (sws_ctx) |ctx| c.sws_freeContext(ctx);
 
         while (true) {
-            const ret = c.avcodec_receive_packet(enc_ctx, &pkt);
-            if (ret == c.AVERROR(c.EAGAIN) or ret == c.AVERROR_EOF) break;
-            if (ret < 0) break;
+            // 10-second limit
+            if (frame_count >= 30 * 10) break;
 
-            pkt.stream_index = 0;
-            // rescale to stream time base (already the same, but safe)
-            pkt.pts = c.av_rescale_q_rnd(pkt.pts, enc_ctx.*.time_base, stream.*.time_base, c.AV_ROUND_NEAR_INF);
-            pkt.dts = pkt.pts;
-            pkt.duration = c.av_rescale_q(1, enc_ctx.*.time_base, stream.*.time_base);
+            const buf_idx = sync_data.get_first() orelse continue;
+            const buffer_index = buf_idx;
 
-            _ = c.av_interleaved_write_frame(oc, &pkt);
-            c.av_packet_unref(&pkt);
+            // ----- Raw YUYV frame -----
+            var src_frame = c.av_frame_alloc() orelse { sync_data.pop() catch {}; continue; };
+            defer c.av_frame_free(&src_frame);
+
+            src_frame.*.format = c.AV_PIX_FMT_YUYV422;
+            src_frame.*.width  = 640;
+            src_frame.*.height = 480;
+            if (c.av_frame_get_buffer(src_frame, 0) < 0) {
+                sync_data.pop() catch {};
+                continue;
+            }
+
+            const yuyv_ptr: [*c]const u8 = @ptrCast(sync_data.buffers[buffer_index].start);
+            const yuyv_len = sync_data.buffers[buffer_index].bytes_used;
+            @memcpy(src_frame.*.data[0], yuyv_ptr[0..yuyv_len]);
+            src_frame.*.linesize[0] = 640 * 2;
+
+            // ----- Convert to YUV420P -----
+            var dst_frame = c.av_frame_alloc() orelse { sync_data.pop() catch {}; continue; };
+            defer c.av_frame_free(&dst_frame);
+
+            dst_frame.*.format = c.AV_PIX_FMT_YUV420P;
+            dst_frame.*.width  = 640;
+            dst_frame.*.height = 480;
+            if (c.av_frame_get_buffer(dst_frame, 0) < 0) {
+                sync_data.pop() catch {};
+                continue;
+            }
+
+            // Create sws context once
+            if (sws_ctx == null) {
+                sws_ctx = c.sws_getContext(
+                    640, 480, c.AV_PIX_FMT_YUYV422,
+                    640, 480, c.AV_PIX_FMT_YUV420P,
+                    c.SWS_BILINEAR, null, null, null,
+                );
+            }
+
+            // THIS IS THE ONLY CORRECT WAY IN ZIG
+            _ = c.sws_scale(sws_ctx,
+                @ptrCast(&src_frame.*.data),
+                @ptrCast(&src_frame.*.linesize),
+                0, 480,
+                @ptrCast(&dst_frame.*.data),
+                @ptrCast(&dst_frame.*.linesize));
+
+            dst_frame.*.pts = frame_count;
+            frame_count += 1;
+
+            // ----- Encode -----
+            _ = c.avcodec_send_frame(@ptrCast(enc_ctx), dst_frame);
+
+            var pkt: c.AVPacket = undefined;
+            c.av_init_packet(&pkt);
+
+            while (true) {
+                const ret = c.avcodec_receive_packet(@ptrCast(enc_ctx), &pkt);
+                if (ret == c.AVERROR(c.EAGAIN) or ret == c.AVERROR_EOF) break;
+                if (ret < 0) break;
+
+                pkt.stream_index = 0;
+                // rescale to stream time base (already the same, but safe)
+                pkt.pts = c.av_rescale_q_rnd(pkt.pts, enc_ctx.time_base, stream.time_base, c.AV_ROUND_NEAR_INF);
+                pkt.dts = pkt.pts;
+                pkt.duration = c.av_rescale_q(1, enc_ctx.time_base, stream.time_base);
+
+                _ = c.av_interleaved_write_frame(@ptrCast(out_ctx), &pkt);
+                c.av_packet_unref(&pkt);
+            }
+
+            sync_data.pop() catch {};
         }
 
-        sync_data.pop() catch {};
+        // ----- Finalise file -----
+        _ = c.av_write_trailer(@ptrCast(out_ctx));
+        debug.print("Finished – output.mp4 is ready and playable!\n", .{});
     }
-
-    // ----- Finalise file -----
-    _ = c.av_write_trailer(oc);
-    debug.print("Finished – output.mp4 is ready and playable!\n", .{});
+    set_error(sync_data, sync.ThreadingErrors.PrototypeEncoderNaturallyDone);
 }
 
 fn set_error(data: *sync.SynchronousData, err: sync.ThreadingErrors) void {

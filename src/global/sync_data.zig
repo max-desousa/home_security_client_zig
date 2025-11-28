@@ -20,6 +20,8 @@ pub const ThreadingErrors = error{
     EncoderCouldNotSetOutputContext,
     EncoderCouldNotOpenCodec,
     EncoderTimedOut,
+    EncoderCouldNotCreateFmtCtx,
+    PrototypeEncoderNaturallyDone,
     IOError,
     CameraRunOutOfBuffers,
     CameraCouldNotFreeBuffer,
