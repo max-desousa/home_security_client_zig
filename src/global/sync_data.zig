@@ -6,7 +6,7 @@ pub const CameraBuffer = struct {
     start: *anyopaque,
     length: u32,
     bytes_used: u32 = 0,
-    //time_stamp: c.struct_timeval = std.mem.zeroes(c.struct_timeval),
+    time_stamp: c.struct_timeval = std.mem.zeroes(c.struct_timeval),
     sequence: u32 = 0,
 };
 

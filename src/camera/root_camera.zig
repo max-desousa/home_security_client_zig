@@ -1,7 +1,6 @@
 pub const Camera = @This();
 
 const std = @import("std");
-const file_system = @import("file_system");
 const debug = @import("debug");
 const sync = @import("sync_data");
 const c = @import("c_imports").c;
@@ -381,7 +380,7 @@ pub fn capture_single_frame(self: Camera) !?u8 {
     std.debug.print("\tUpdating buffer {d}'s bytes used (val = {d})...\n", .{ buf.index, buf.bytesused });
     self.buffers[buf.index].bytes_used = buf.bytesused;
     //std.debug.print("\tUpdating buffer {d}'s timestamp...\n", .{buf.index});
-    //self.buffers[buf.index].time_stamp = buf.timestamp;
+    self.buffers[buf.index].time_stamp = buf.timestamp;
     std.debug.print("\tUpdating buffer {d}'s sequence...\n", .{buf.index});
     self.buffers[buf.index].sequence = buf.sequence;
 

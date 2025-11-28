@@ -20,13 +20,13 @@ pub fn build(b: *std.Build) void {
     });
 
     const mod_debug = b.createModule(.{
-        .root_source_file = b.path("src/debug/root.zig"),
+        .root_source_file = b.path("src/debug/root_debug.zig"),
         .target = target,
         .optimize = optimize,
     });
 
     const mod_encoding = b.createModule(.{
-        .root_source_file = b.path("src/encoding/root.zig"),
+        .root_source_file = b.path("src/encoding/root_encoding.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{
@@ -36,18 +36,11 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    const mod_file_system = b.createModule(.{
-        .root_source_file = b.path("src/file_system/root.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
     const mod_camera = b.createModule(.{
-        .root_source_file = b.path("src/camera/root.zig"),
+        .root_source_file = b.path("src/camera/root_camera.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{
-            .{ .name = "file_system", .module = mod_file_system },
             .{ .name = "sync_data", .module = mod_sync_data },
             .{ .name = "debug", .module = mod_debug },
             .{ .name = "c_imports", .module = mod_c_imports },
@@ -55,7 +48,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const mod_cores = b.createModule(.{
-        .root_source_file = b.path("src/core_layouts/root.zig"),
+        .root_source_file = b.path("src/core_layouts/root_cores.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{
