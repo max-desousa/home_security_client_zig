@@ -12,7 +12,8 @@ pub fn main() !void {
 
     switch (config.number_of_cores) {
         1 => try core_layouts.single_core_layout(),
-        2...7 => try core_layouts.restricted_core_layout(),
+        2 => try core_layouts.two_core_layout(),
+        3...7 => try core_layouts.restricted_core_layout(),
         else => try core_layouts.perfect_core_layout(),
     }
 }
