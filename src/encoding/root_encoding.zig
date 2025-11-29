@@ -19,8 +19,8 @@ fn set_encoder_context(encoder: *c.struct_AVCodec) ?*c.struct_AVCodecContext {
     // ------ Encoder parameters ------
     enc_ctx.width = 640;
     enc_ctx.height = 480;
-    enc_ctx.time_base = .{ .num = 1, .den = 30 };
-    enc_ctx.framerate = .{ .num = 30, .den = 1 };
+    enc_ctx.time_base = .{ .num = 1, .den = 1_000_000 };
+    enc_ctx.framerate = .{ .num = 1, .den = 1 };
     enc_ctx.pix_fmt = c.AV_PIX_FMT_YUV420P;
     enc_ctx.bit_rate = 2_000_000;
     enc_ctx.gop_size = 30;
@@ -62,7 +62,7 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
         return;
     }
 
-    for (0..5) |i| {
+    for (0..6) |i| {
         var filename_buffer : [20]u8 = undefined;
         const filename = std.fmt.bufPrintSentinel(&filename_buffer, "test_output_{}.mp4", .{i}, 0) catch {
             set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotCreateFmtCtx);
@@ -80,7 +80,7 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
             set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotSetOutputContext);
             return;
         };
-        // THIS LINE WAS WRONG BEFORE (missing .*)
+
         if (c.avcodec_parameters_from_context(@ptrCast(stream.codecpar), @ptrCast(enc_ctx)) < 0) {
             set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotSetOutputContext);
             return;
@@ -100,7 +100,8 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
             return;
         }
 
-        var frame_count: i64 = 0;
+        //var elapsed_time_us : ?i64 = null;
+        var starting_pts_us : ?i64 = null;
 
         // Reuse this for every frame (huge speedup)
         var sws_ctx: ?*c.struct_SwsContext = null;
@@ -108,36 +109,35 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
 
         while (true) {
             // 10-second limit
-            if (frame_count >= 30 * 10) break;
 
             const buf_idx = sync_data.get_first() orelse continue;
             const buffer_index = buf_idx;
 
             // ----- Raw YUYV frame -----
-            var src_frame = c.av_frame_alloc() orelse { sync_data.pop() catch {}; continue; };
-            defer c.av_frame_free(&src_frame);
+            var src_frame : *c.struct_AVFrame = c.av_frame_alloc() orelse { sync_data.pop() catch {}; continue; };
+            defer c.av_frame_free(@ptrCast(&src_frame));
 
-            src_frame.*.format = c.AV_PIX_FMT_YUYV422;
-            src_frame.*.width  = 640;
-            src_frame.*.height = 480;
-            if (c.av_frame_get_buffer(src_frame, 0) < 0) {
+            src_frame.format = c.AV_PIX_FMT_YUYV422;
+            src_frame.width  = 640;
+            src_frame.height = 480;
+            if (c.av_frame_get_buffer(@ptrCast(src_frame), 0) < 0) {
                 sync_data.pop() catch {};
                 continue;
             }
 
             const yuyv_ptr: [*c]const u8 = @ptrCast(sync_data.buffers[buffer_index].start);
             const yuyv_len = sync_data.buffers[buffer_index].bytes_used;
-            @memcpy(src_frame.*.data[0], yuyv_ptr[0..yuyv_len]);
-            src_frame.*.linesize[0] = 640 * 2;
+            @memcpy(src_frame.data[0], yuyv_ptr[0..yuyv_len]);
+            src_frame.linesize[0] = 640 * 2;
 
             // ----- Convert to YUV420P -----
-            var dst_frame = c.av_frame_alloc() orelse { sync_data.pop() catch {}; continue; };
-            defer c.av_frame_free(&dst_frame);
+            var dst_frame : *c.struct_AVFrame = c.av_frame_alloc() orelse { sync_data.pop() catch {}; continue; };
+            defer c.av_frame_free(@ptrCast(&dst_frame));
 
-            dst_frame.*.format = c.AV_PIX_FMT_YUV420P;
-            dst_frame.*.width  = 640;
-            dst_frame.*.height = 480;
-            if (c.av_frame_get_buffer(dst_frame, 0) < 0) {
+            dst_frame.format = c.AV_PIX_FMT_YUV420P;
+            dst_frame.width  = 640;
+            dst_frame.height = 480;
+            if (c.av_frame_get_buffer(@ptrCast(dst_frame), 0) < 0) {
                 sync_data.pop() catch {};
                 continue;
             }
@@ -153,17 +153,30 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
 
             // THIS IS THE ONLY CORRECT WAY IN ZIG
             _ = c.sws_scale(sws_ctx,
-                @ptrCast(&src_frame.*.data),
-                @ptrCast(&src_frame.*.linesize),
+                @ptrCast(&src_frame.data),
+                @ptrCast(&src_frame.linesize),
                 0, 480,
-                @ptrCast(&dst_frame.*.data),
-                @ptrCast(&dst_frame.*.linesize));
+                @ptrCast(&dst_frame.data),
+                @ptrCast(&dst_frame.linesize));
 
-            dst_frame.*.pts = frame_count;
-            frame_count += 1;
+            const pts_us : i64 =
+                sync_data.buffers[buffer_index].time_stamp.tv_sec * 1_000_000 +
+                sync_data.buffers[buffer_index].time_stamp.tv_usec;
+
+            if (null == starting_pts_us) {
+                starting_pts_us = pts_us;
+            } else {
+                if (pts_us - starting_pts_us.? > 10_000_000) {
+                    debug.print("Reached 10 seconds of video, finishing up...\n", .{});
+                    sync_data.pop() catch {};
+                    break;
+                }
+            }
+
+            dst_frame.pts = pts_us - starting_pts_us.?;
 
             // ----- Encode -----
-            _ = c.avcodec_send_frame(@ptrCast(enc_ctx), dst_frame);
+            _ = c.avcodec_send_frame(@ptrCast(enc_ctx), @ptrCast(dst_frame));
 
             var pkt: c.AVPacket = undefined;
             c.av_init_packet(&pkt);
@@ -177,7 +190,8 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
                 // rescale to stream time base (already the same, but safe)
                 pkt.pts = c.av_rescale_q_rnd(pkt.pts, enc_ctx.time_base, stream.time_base, c.AV_ROUND_NEAR_INF);
                 pkt.dts = pkt.pts;
-                pkt.duration = c.av_rescale_q(1, enc_ctx.time_base, stream.time_base);
+                //pkt.duration = c.av_rescale_q(1, enc_ctx.time_base, stream.time_base);
+                pkt.duration = 0;
 
                 _ = c.av_interleaved_write_frame(@ptrCast(out_ctx), &pkt);
                 c.av_packet_unref(&pkt);

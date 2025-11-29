@@ -381,6 +381,7 @@ pub fn capture_single_frame(self: Camera) !?u8 {
     self.buffers[buf.index].bytes_used = buf.bytesused;
     //std.debug.print("\tUpdating buffer {d}'s timestamp...\n", .{buf.index});
     self.buffers[buf.index].time_stamp = buf.timestamp;
+    std.debug.print("Just aquired timestamp: {d}.{d}\n", .{buf.timestamp.tv_sec, buf.timestamp.tv_usec});
     std.debug.print("\tUpdating buffer {d}'s sequence...\n", .{buf.index});
     self.buffers[buf.index].sequence = buf.sequence;
 
