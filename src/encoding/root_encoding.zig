@@ -80,7 +80,7 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
             set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotSetOutputContext);
             return;
         };
-        // THIS LINE WAS WRONG BEFORE (missing .*)
+
         if (c.avcodec_parameters_from_context(@ptrCast(stream.codecpar), @ptrCast(enc_ctx)) < 0) {
             set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotSetOutputContext);
             return;
@@ -114,30 +114,30 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
             const buffer_index = buf_idx;
 
             // ----- Raw YUYV frame -----
-            var src_frame = c.av_frame_alloc() orelse { sync_data.pop() catch {}; continue; };
-            defer c.av_frame_free(&src_frame);
+            var src_frame : *c.struct_AVFrame = c.av_frame_alloc() orelse { sync_data.pop() catch {}; continue; };
+            defer c.av_frame_free(@ptrCast(&src_frame));
 
-            src_frame.*.format = c.AV_PIX_FMT_YUYV422;
-            src_frame.*.width  = 640;
-            src_frame.*.height = 480;
-            if (c.av_frame_get_buffer(src_frame, 0) < 0) {
+            src_frame.format = c.AV_PIX_FMT_YUYV422;
+            src_frame.width  = 640;
+            src_frame.height = 480;
+            if (c.av_frame_get_buffer(@ptrCast(src_frame), 0) < 0) {
                 sync_data.pop() catch {};
                 continue;
             }
 
             const yuyv_ptr: [*c]const u8 = @ptrCast(sync_data.buffers[buffer_index].start);
             const yuyv_len = sync_data.buffers[buffer_index].bytes_used;
-            @memcpy(src_frame.*.data[0], yuyv_ptr[0..yuyv_len]);
-            src_frame.*.linesize[0] = 640 * 2;
+            @memcpy(src_frame.data[0], yuyv_ptr[0..yuyv_len]);
+            src_frame.linesize[0] = 640 * 2;
 
             // ----- Convert to YUV420P -----
-            var dst_frame = c.av_frame_alloc() orelse { sync_data.pop() catch {}; continue; };
-            defer c.av_frame_free(&dst_frame);
+            var dst_frame : *c.struct_AVFrame = c.av_frame_alloc() orelse { sync_data.pop() catch {}; continue; };
+            defer c.av_frame_free(@ptrCast(&dst_frame));
 
-            dst_frame.*.format = c.AV_PIX_FMT_YUV420P;
-            dst_frame.*.width  = 640;
-            dst_frame.*.height = 480;
-            if (c.av_frame_get_buffer(dst_frame, 0) < 0) {
+            dst_frame.format = c.AV_PIX_FMT_YUV420P;
+            dst_frame.width  = 640;
+            dst_frame.height = 480;
+            if (c.av_frame_get_buffer(@ptrCast(dst_frame), 0) < 0) {
                 sync_data.pop() catch {};
                 continue;
             }
@@ -153,17 +153,17 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
 
             // THIS IS THE ONLY CORRECT WAY IN ZIG
             _ = c.sws_scale(sws_ctx,
-                @ptrCast(&src_frame.*.data),
-                @ptrCast(&src_frame.*.linesize),
+                @ptrCast(&src_frame.data),
+                @ptrCast(&src_frame.linesize),
                 0, 480,
-                @ptrCast(&dst_frame.*.data),
-                @ptrCast(&dst_frame.*.linesize));
+                @ptrCast(&dst_frame.data),
+                @ptrCast(&dst_frame.linesize));
 
-            dst_frame.*.pts = frame_count;
+            dst_frame.pts = frame_count;
             frame_count += 1;
 
             // ----- Encode -----
-            _ = c.avcodec_send_frame(@ptrCast(enc_ctx), dst_frame);
+            _ = c.avcodec_send_frame(@ptrCast(enc_ctx), @ptrCast(dst_frame));
 
             var pkt: c.AVPacket = undefined;
             c.av_init_packet(&pkt);
