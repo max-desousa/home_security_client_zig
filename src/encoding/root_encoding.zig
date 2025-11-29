@@ -19,8 +19,8 @@ fn set_encoder_context(encoder: *c.struct_AVCodec) ?*c.struct_AVCodecContext {
     // ------ Encoder parameters ------
     enc_ctx.width = 640;
     enc_ctx.height = 480;
-    enc_ctx.time_base = .{ .num = 1, .den = 30 };
-    enc_ctx.framerate = .{ .num = 30, .den = 1 };
+    enc_ctx.time_base = .{ .num = 1, .den = 1_000_000 };
+    enc_ctx.framerate = .{ .num = 1, .den = 1 };
     enc_ctx.pix_fmt = c.AV_PIX_FMT_YUV420P;
     enc_ctx.bit_rate = 2_000_000;
     enc_ctx.gop_size = 30;
@@ -62,7 +62,7 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
         return;
     }
 
-    for (0..5) |i| {
+    for (0..1) |i| {
         var filename_buffer : [20]u8 = undefined;
         const filename = std.fmt.bufPrintSentinel(&filename_buffer, "test_output_{}.mp4", .{i}, 0) catch {
             set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotCreateFmtCtx);
@@ -100,7 +100,8 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
             return;
         }
 
-        var frame_count: i64 = 0;
+        //var elapsed_time_us : ?i64 = null;
+        var starting_pts_us : ?i64 = null;
 
         // Reuse this for every frame (huge speedup)
         var sws_ctx: ?*c.struct_SwsContext = null;
@@ -108,7 +109,6 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
 
         while (true) {
             // 10-second limit
-            if (frame_count >= 30 * 10) break;
 
             const buf_idx = sync_data.get_first() orelse continue;
             const buffer_index = buf_idx;
@@ -159,8 +159,25 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
                 @ptrCast(&dst_frame.data),
                 @ptrCast(&dst_frame.linesize));
 
-            dst_frame.pts = frame_count;
-            frame_count += 1;
+            const pts_us : i64 =
+                sync_data.buffers[buffer_index].time_stamp.tv_sec * 1_000_000 +
+                sync_data.buffers[buffer_index].time_stamp.tv_usec;
+
+            std.debug.print("Timing stats:...\n", .{});
+            std.debug.print("\tPTS value coming in : {d} us\n", .{pts_us});
+            std.debug.print("\tElapsed time so far : {d} us\n", .{ starting_pts_us orelse 0});
+            //std.debug.print("\tDifference from target = {d} us\n", .{10_000_000 - elapsed_time_us.?});
+            if (null == starting_pts_us) {
+                starting_pts_us = pts_us;
+            } else {
+                if (pts_us - starting_pts_us.? > 10_000_000) {
+                    debug.print("Reached 10 seconds of video, finishing up...\n", .{});
+                    sync_data.pop() catch {};
+                    break;
+                }
+            }
+
+            dst_frame.pts = pts_us - starting_pts_us.?;
 
             // ----- Encode -----
             _ = c.avcodec_send_frame(@ptrCast(enc_ctx), @ptrCast(dst_frame));
@@ -177,7 +194,8 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
                 // rescale to stream time base (already the same, but safe)
                 pkt.pts = c.av_rescale_q_rnd(pkt.pts, enc_ctx.time_base, stream.time_base, c.AV_ROUND_NEAR_INF);
                 pkt.dts = pkt.pts;
-                pkt.duration = c.av_rescale_q(1, enc_ctx.time_base, stream.time_base);
+                //pkt.duration = c.av_rescale_q(1, enc_ctx.time_base, stream.time_base);
+                pkt.duration = 0;
 
                 _ = c.av_interleaved_write_frame(@ptrCast(out_ctx), &pkt);
                 c.av_packet_unref(&pkt);
