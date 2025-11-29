@@ -62,7 +62,7 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
         return;
     }
 
-    for (0..1) |i| {
+    for (0..6) |i| {
         var filename_buffer : [20]u8 = undefined;
         const filename = std.fmt.bufPrintSentinel(&filename_buffer, "test_output_{}.mp4", .{i}, 0) catch {
             set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotCreateFmtCtx);
@@ -163,10 +163,6 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
                 sync_data.buffers[buffer_index].time_stamp.tv_sec * 1_000_000 +
                 sync_data.buffers[buffer_index].time_stamp.tv_usec;
 
-            std.debug.print("Timing stats:...\n", .{});
-            std.debug.print("\tPTS value coming in : {d} us\n", .{pts_us});
-            std.debug.print("\tElapsed time so far : {d} us\n", .{ starting_pts_us orelse 0});
-            //std.debug.print("\tDifference from target = {d} us\n", .{10_000_000 - elapsed_time_us.?});
             if (null == starting_pts_us) {
                 starting_pts_us = pts_us;
             } else {
