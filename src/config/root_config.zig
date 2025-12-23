@@ -3,9 +3,15 @@ const std = @import("std");
 const CONFIG_FILE_NAME = "config.zap";
 
 var VIDEO_DURATION_IN_SECONDS : u64 = undefined;
+var BUFFER_FOR_CAMERA_HARDWARE_NAME : [64]u8 = undefined;
+var CAMERA_HARDWARE_NAME : [:0]u8 = BUFFER_FOR_CAMERA_HARDWARE_NAME[0..0 :0];
 
 pub fn get_config_video_duration() u64 {
     return VIDEO_DURATION_IN_SECONDS;
+}
+
+pub fn get_camera_hardware_name() [:0]u8 {
+    return CAMERA_HARDWARE_NAME;
 }
 
 pub fn establish_config() !void {
@@ -34,6 +40,11 @@ fn parse_file(file : std.Io.File, io : std.Io) !void {
         if (std.mem.eql(u8, before, "[video duration]")) {
             VIDEO_DURATION_IN_SECONDS = try std.fmt.parseInt(u64, after, 10);
         }
+        else if (std.mem.eql(u8, before, "[camera device name]")) {
+            @memcpy(BUFFER_FOR_CAMERA_HARDWARE_NAME[0..after.len], after);
+            BUFFER_FOR_CAMERA_HARDWARE_NAME[after.len] = 0;
+            CAMERA_HARDWARE_NAME = BUFFER_FOR_CAMERA_HARDWARE_NAME[0..after.len :0];
+        }
         else {
             unreachable;
         }
@@ -51,9 +62,14 @@ fn make_default_config() !void {
     var writer_buffer : [512]u8 = undefined;
     var writer = std.fs.File.Writer.init(new_file, &writer_buffer);
 
-    //Error to look into... why can't I use variable as format specifier?
-    //To prevent possible difference on update
     VIDEO_DURATION_IN_SECONDS = 600;
     try writer.interface.print("[video duration] = {d}\n", .{VIDEO_DURATION_IN_SECONDS});
+
+    const device = "/dev/video0";
+    @memcpy(BUFFER_FOR_CAMERA_HARDWARE_NAME[0..device.len], device);
+    BUFFER_FOR_CAMERA_HARDWARE_NAME[device.len] = 0;
+    CAMERA_HARDWARE_NAME = BUFFER_FOR_CAMERA_HARDWARE_NAME[0..device.len :0];
+    try writer.interface.print("[camera device name] = {s}\n", .{CAMERA_HARDWARE_NAME});
+
     try writer.end();
 }

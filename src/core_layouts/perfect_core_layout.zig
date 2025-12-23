@@ -43,5 +43,5 @@ pub fn perfect_core_layout() !void {
     try pool.spawn(encoding.encoding_thread, .{&sync_data});
 
     debug.print("Starting capture thread\n", .{});
-    try pool.spawn(camera.run, .{ "/dev/video0", allocator, &sync_data });
+    try pool.spawn(camera.run, .{config.get_camera_hardware_name(), allocator, &sync_data });
 }
