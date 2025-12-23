@@ -4,12 +4,15 @@ const camera = @import("camera");
 const encoding = @import("encoding");
 const debug = @import("debug");
 const sync = @import("sync_data");
+const config = @import("config");
 
 const SIGNALS = [_]i32{
     std.os.SIG.INT,
 };
 
 pub fn perfect_core_layout() !void {
+    try config.establish_config();
+
     // Implementation for perfect core layout
     debug.print("Using perfect core layout\n", .{});
 
@@ -40,5 +43,5 @@ pub fn perfect_core_layout() !void {
     try pool.spawn(encoding.encoding_thread, .{&sync_data});
 
     debug.print("Starting capture thread\n", .{});
-    try pool.spawn(camera.run, .{ "/dev/video0", allocator, &sync_data });
+    try pool.spawn(camera.run, .{config.get_camera_hardware_name(), allocator, &sync_data });
 }

@@ -4,6 +4,12 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const mod_config = b.createModule(.{
+        .root_source_file = b.path("src/config/root_config.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const mod_c_imports = b.createModule(.{
         .root_source_file = b.path("src/imports/c_imports.zig"),
         .target = target,
@@ -56,6 +62,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "sync_data", .module = mod_sync_data },
             .{ .name = "encoding", .module = mod_encoding },
             .{ .name = "debug", .module = mod_debug },
+            .{ .name = "config", .module = mod_config },
         },
     });
 
