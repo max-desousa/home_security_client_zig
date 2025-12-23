@@ -98,7 +98,7 @@ fn get_time_for_filename_string(allocator : std.mem.Allocator, offset : u64) ![]
         });
 }
 
-fn file_name_actve(file_name : []const u8) !bool {
+fn within_time_frame_of_filename(file_name : []const u8) !bool {
     var debug_allocator : std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.deinit();
     const allocator = debug_allocator.allocator();
