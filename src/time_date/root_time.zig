@@ -1,30 +1,30 @@
 const std = @import("std");
 
-pub fn get_current_video_time_stamp() !void {
-    var time : std.c.timespec = undefined;
-    const ptr_to_time = &time;
-    const foo = std.c.clock_gettime((std.c.CLOCK.REALTIME), ptr_to_time);
-    std.debug.print("clock_gettime() returns: {any}\n", .{ foo } );
-    std.debug.print("timespec: sec={d}, nsec={d}\n", .{ time.sec, time.nsec } );
-    std.debug.print("Current video timestamp (nanoseconds since epoch): {d}\n", .{ (time.sec * 1_000_000_000) + time.nsec } );
-
-    var epoch_seconds : std.time.epoch.EpochSeconds = .{ .secs = @intCast(time.sec) };
-
-    var epochDay = epoch_seconds.getEpochDay();
-
-    //const year_and_day = std.time.epoch.EpochDay.calculateYearDay(val.getEpochDay());
-    const year_and_day = epochDay.calculateYearDay();
-
-    std.debug.print("Current Year: {d}\n", .{ year_and_day.year });
-    std.debug.print("Current Month: {d}\n", .{ year_and_day.calculateMonthDay().month.numeric() });
-    std.debug.print("Current Month (name): {s}\n", .{ @tagName(year_and_day.calculateMonthDay().month) });
-    std.debug.print("Current Day: {d}\n", .{ year_and_day.calculateMonthDay().day_index });
-    std.debug.print("\t(fraction of year = {d}/365)\n", .{ year_and_day.day });
-    const epoch_day_seconds = 
+//pub fn get_current_video_time_stamp() !void {
+//    var time : std.c.timespec = undefined;
+//    const ptr_to_time = &time;
+//    const foo = std.c.clock_gettime((std.c.CLOCK.REALTIME), ptr_to_time);
+//    std.debug.print("clock_gettime() returns: {any}\n", .{ foo } );
+//    std.debug.print("timespec: sec={d}, nsec={d}\n", .{ time.sec, time.nsec } );
+//    std.debug.print("Current video timestamp (nanoseconds since epoch): {d}\n", .{ (time.sec * 1_000_000_000) + time.nsec } );
+//
+//    var epoch_seconds : std.time.epoch.EpochSeconds = .{ .secs = @intCast(time.sec) };
+//
+//    var epochDay = epoch_seconds.getEpochDay();
+//
+//    //const year_and_day = std.time.epoch.EpochDay.calculateYearDay(val.getEpochDay());
+//    const year_and_day = epochDay.calculateYearDay();
+//
+//    std.debug.print("Current Year: {d}\n", .{ year_and_day.year });
+//    std.debug.print("Current Month: {d}\n", .{ year_and_day.calculateMonthDay().month.numeric() });
+//    std.debug.print("Current Month (name): {s}\n", .{ @tagName(year_and_day.calculateMonthDay().month) });
+//    std.debug.print("Current Day: {d}\n", .{ year_and_day.calculateMonthDay().day_index });
+//    std.debug.print("\t(fraction of year = {d}/365)\n", .{ year_and_day.day });
+//    const epoch_day_seconds = 
     //std.debug.print("Current Hour: {d}\n", .{});
     //std.debug.print("Current Minute: {d}\n", .{});
     //std.debug.print("Current Second: {d}\n", .{});
-}
+//}
 
 //pub fn main() !void {
 //    var debug_allocator : std.heap.DebugAllocator(.{}) = .init;

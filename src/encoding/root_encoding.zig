@@ -2,6 +2,7 @@
 const std = @import("std");
 const debug = @import("debug");
 const sync = @import("sync_data");
+const config = @import("config");
 const c = @import("c_imports").c;
 
 //##############################################################################
@@ -17,8 +18,8 @@ fn set_encoder_context(encoder: *c.struct_AVCodec) ?*c.struct_AVCodecContext {
     };
 
     // ------ Encoder parameters ------
-    enc_ctx.width = 640;
-    enc_ctx.height = 480;
+    enc_ctx.width = config.get_camera_width();
+    enc_ctx.height = config.get_camera_height();
     enc_ctx.time_base = .{ .num = 1, .den = 1_000_000 };
     enc_ctx.framerate = .{ .num = 1, .den = 1 };
     enc_ctx.pix_fmt = c.AV_PIX_FMT_YUV420P;
@@ -118,8 +119,8 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
             defer c.av_frame_free(@ptrCast(&src_frame));
 
             src_frame.format = c.AV_PIX_FMT_YUYV422;
-            src_frame.width  = 640;
-            src_frame.height = 480;
+            src_frame.width  = config.get_camera_width();
+            src_frame.height = config.get_camera_height();
             if (c.av_frame_get_buffer(@ptrCast(src_frame), 0) < 0) {
                 sync_data.pop() catch {};
                 continue;
@@ -128,15 +129,15 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
             const yuyv_ptr: [*c]const u8 = @ptrCast(sync_data.buffers[buffer_index].start);
             const yuyv_len = sync_data.buffers[buffer_index].bytes_used;
             @memcpy(src_frame.data[0], yuyv_ptr[0..yuyv_len]);
-            src_frame.linesize[0] = 640 * 2;
+            src_frame.linesize[0] = config.get_camera_width() * 2;
 
             // ----- Convert to YUV420P -----
             var dst_frame : *c.struct_AVFrame = c.av_frame_alloc() orelse { sync_data.pop() catch {}; continue; };
             defer c.av_frame_free(@ptrCast(&dst_frame));
 
             dst_frame.format = c.AV_PIX_FMT_YUV420P;
-            dst_frame.width  = 640;
-            dst_frame.height = 480;
+            dst_frame.width  = config.get_camera_width();
+            dst_frame.height = config.get_camera_height();
             if (c.av_frame_get_buffer(@ptrCast(dst_frame), 0) < 0) {
                 sync_data.pop() catch {};
                 continue;
@@ -145,8 +146,8 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
             // Create sws context once
             if (sws_ctx == null) {
                 sws_ctx = c.sws_getContext(
-                    640, 480, c.AV_PIX_FMT_YUYV422,
-                    640, 480, c.AV_PIX_FMT_YUV420P,
+                    config.get_camera_width(), config.get_camera_height(), c.AV_PIX_FMT_YUYV422,
+                    config.get_camera_width(), config.get_camera_height(), c.AV_PIX_FMT_YUV420P,
                     c.SWS_BILINEAR, null, null, null,
                 );
             }
@@ -155,7 +156,7 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
             _ = c.sws_scale(sws_ctx,
                 @ptrCast(&src_frame.data),
                 @ptrCast(&src_frame.linesize),
-                0, 480,
+                0, config.get_camera_height(),
                 @ptrCast(&dst_frame.data),
                 @ptrCast(&dst_frame.linesize));
 

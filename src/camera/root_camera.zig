@@ -4,6 +4,7 @@ const std = @import("std");
 const debug = @import("debug");
 const sync = @import("sync_data");
 const c = @import("c_imports").c;
+const config = @import("config");
 
 const SetupState = enum {
     Naked,
@@ -25,20 +26,10 @@ n_buffers: u8 = undefined,
 private_head: usize = 0,
 private_tail: usize = 0,
 
-pub fn run(dev_name: [*:0]const u8, allocator: std.mem.Allocator, sync_data: *sync.SynchronousData) void {
-    var cam = init(dev_name, allocator) catch |err| {
-        std.debug.print("Error initializing camera...\n", .{});
-        std.debug.print("\tError code: {any}\n", .{err});
-        {
-            sync_data.mutex.lock();
-            defer sync_data.mutex.unlock();
-            sync_data.sync_error = sync.ThreadingErrors.CameraCouldNotStart;
-        }
-        return;
-    };
-    defer cam.deinit();
-    sync_data.buffers = cam.buffers;
-    cam.infinite_capture(sync_data);
+
+pub fn run(self : *Camera, sync_data: *sync.SynchronousData) void {
+    sync_data.buffers = self.buffers;
+    self.infinite_capture(sync_data);
 }
 
 pub fn infinite_capture(self: *Camera, sync_data: *sync.SynchronousData) void {
@@ -252,8 +243,8 @@ fn configure_device(self: *Camera) !void {
     }
 
     fmt.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    fmt.fmt.pix.width = 640;
-    fmt.fmt.pix.height = 480;
+    fmt.fmt.pix.width = config.get_camera_width();
+    fmt.fmt.pix.height = config.get_camera_height();
     fmt.fmt.pix.pixelformat = c.V4L2_PIX_FMT_YUYV;
 
     if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_S_FMT, &fmt)) {
@@ -261,11 +252,30 @@ fn configure_device(self: *Camera) !void {
         return error.SetFormatFailed;
     }
 
-    std.debug.print("Pixel format set successfully.\n", .{});
-    std.debug.print("Configured format:\n", .{});
-    std.debug.print("\tWidth: {d}\n", .{fmt.fmt.pix.width});
-    std.debug.print("\tHeight: {d}\n", .{fmt.fmt.pix.height});
-    std.debug.print("\tPixel Format: {x}\n", .{fmt.fmt.pix.pixelformat});
+    if (config.get_crash_on_vid_diff()) {
+        debug.print("Set to validate camera settings... checking now\n", .{});
+        var validated_fmt: c.v4l2_format = std.mem.zeroes(c.v4l2_format);
+        validated_fmt.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_G_FMT, &validated_fmt)) {
+            debug.print("Could not get video settings\n", .{});
+            return error.CouldNotValidateCameraSettings;
+        }
+        if ((config.get_camera_width() != validated_fmt.fmt.pix.width) or
+            (config.get_camera_height() != validated_fmt.fmt.pix.height)) {
+            debug.print("ERROR: Camera not configured correctly\n", .{});
+            debug.print("\twidth x height = {d}x{d}\n", .{validated_fmt.fmt.pix.width, validated_fmt.fmt.pix.width});
+            return error.CameraSettingsDontMatchConfig;
+        } else {
+            debug.print("CAMERA SET CORRECTLY\n", .{});
+        }
+    } else {
+        std.debug.print("Assuming pixel format set successfully.\n", .{});
+        std.debug.print("Configured format:\n", .{});
+        std.debug.print("\tWidth: {d}\n", .{fmt.fmt.pix.width});
+        std.debug.print("\tHeight: {d}\n", .{fmt.fmt.pix.height});
+        std.debug.print("\tPixel Format: {x}\n", .{fmt.fmt.pix.pixelformat});
+    }
+
 
     try self.initialize_mmap();
 }
