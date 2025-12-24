@@ -30,14 +30,13 @@ pub fn perfect_core_layout() !void {
 
     const io = threaded.io();
 
+    try config.establish_config(io);
+    var camera_obj = try camera.init(config.get_camera_hardware_name(), allocator);
+    defer camera_obj.deinit();
+
     var pool: std.Thread.Pool = undefined;
     try std.Thread.Pool.init(&pool, .{ .allocator = allocator });
     defer pool.deinit();
-
-
-    try config.establish_config(io);
-    var camera_obj = try camera.init(config.get_camera_hardware_name(), allocator);
-
 
     var sync_data: sync.SynchronousData = .{};
 
