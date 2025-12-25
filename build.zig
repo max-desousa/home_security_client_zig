@@ -10,6 +10,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const mod_time = b.createModule(.{
+        .root_source_file = b.path("src/time_date/root_time.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const mod_c_imports = b.createModule(.{
         .root_source_file = b.path("src/imports/c_imports.zig"),
         .target = target,
@@ -40,6 +46,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "sync_data", .module = mod_sync_data },
             .{ .name = "c_imports", .module = mod_c_imports },
             .{ .name = "config", .module = mod_config },
+            .{ .name = "time", .module = mod_time },
         },
     });
 
