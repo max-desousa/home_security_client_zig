@@ -1,60 +1,28 @@
 const std = @import("std");
-
-pub fn get_current_video_time_stamp() !void {
-    var time : std.c.timespec = undefined;
-    const ptr_to_time = &time;
-    const foo = std.c.clock_gettime((std.c.CLOCK.REALTIME), ptr_to_time);
-    std.debug.print("clock_gettime() returns: {any}\n", .{ foo } );
-    std.debug.print("timespec: sec={d}, nsec={d}\n", .{ time.sec, time.nsec } );
-    std.debug.print("Current video timestamp (nanoseconds since epoch): {d}\n", .{ (time.sec * 1_000_000_000) + time.nsec } );
-
-    var epoch_seconds : std.time.epoch.EpochSeconds = .{ .secs = @intCast(time.sec) };
-
-    var epochDay = epoch_seconds.getEpochDay();
-
-    //const year_and_day = std.time.epoch.EpochDay.calculateYearDay(val.getEpochDay());
-    const year_and_day = epochDay.calculateYearDay();
-
-    std.debug.print("Current Year: {d}\n", .{ year_and_day.year });
-    std.debug.print("Current Month: {d}\n", .{ year_and_day.calculateMonthDay().month.numeric() });
-    std.debug.print("Current Month (name): {s}\n", .{ @tagName(year_and_day.calculateMonthDay().month) });
-    std.debug.print("Current Day: {d}\n", .{ year_and_day.calculateMonthDay().day_index });
-    std.debug.print("\t(fraction of year = {d}/365)\n", .{ year_and_day.day });
-    const epoch_day_seconds = 
-    //std.debug.print("Current Hour: {d}\n", .{});
-    //std.debug.print("Current Minute: {d}\n", .{});
-    //std.debug.print("Current Second: {d}\n", .{});
-}
-
-//pub fn main() !void {
-//    var debug_allocator : std.heap.DebugAllocator(.{}) = .init;
-//    defer _ = debug_allocator.deinit();
-//    const allocator = debug_allocator.allocator();
-//    //const allocator = std.heap.page_allocator;
-//    const temp = try get_current_time_as_string(allocator);
-//    defer allocator.free(temp);
-//    std.debug.print("The current time is: {s}\n", .{temp});
+//##############################################################################
 //
-//    const temp2 = try get_time_for_filename_string(allocator, 0);
-//    defer allocator.free(temp2);
-//    std.debug.print("The filename version of the clock is: {s}\n", .{temp2});
+// Enum for time zones. This will almost eclusively be used with the
+// get_timezone_offset_in_sec function.
 //
-//    const start_time = try get_time_for_filename_string(allocator, 0);
-//    defer allocator.free(start_time);
-//    const end_time = try get_time_for_filename_string(allocator, 600);
-//    defer allocator.free(end_time);
-//
-//    const file_name = try std.fmt.allocPrint(allocator, "FrontDoor_{s}-{s}", .{start_time, end_time});
-//    defer allocator.free(file_name);
-//    std.debug.print("proposed filename would be: \"{s}\"\n", .{file_name});
-//    const are_we = try file_name_actve(file_name);
-//    if (are_we) {
-//        std.debug.print("yes\n", .{});
-//    } else {
-//        std.debug.print("no\n", .{});
-//    }
-//}
+//###############################################################################
+const Timezone = enum {
+    EST,
+    California,
+};
 
+
+//##############################################################################
+//
+// Function: get_current_time_as_string
+//
+// Description: This function is very similar to
+//              `get_time_for_filename_string`. It doesn't support an offset -
+//              so it will only return the real time value back (timezone
+//                  padding is hard coded for now). The output of this function
+//              is a string that MUST be freed. The string is in the format;
+//              HHMMSS for the current day.
+//
+//##############################################################################
 fn get_current_time_as_string(allocator : std.mem.Allocator) ![]const u8 {
     const epoch = try std.posix.clock_gettime(.REALTIME);
     const offset : u64 = @intCast(epoch.sec - 18_000);
@@ -68,6 +36,18 @@ fn get_current_time_as_string(allocator : std.mem.Allocator) ![]const u8 {
     return try std.fmt.allocPrint(allocator, "{d:0>2}:{d:0>2}:{d:0>2}", .{hours_into_day, minutes_into_hour, seconds_into_minute});
 }
 
+
+//##############################################################################
+//
+// Functoin: get_time_for_filename_string
+//
+// Description: This function is used to get the epochtime in a human friendly
+//              format. (in a format reflecting calandar date). Posix libraries
+//              are used to get epoch seconds and then the epoch library is
+//              used to convert them in a numeric fashion. The output will be a
+//              string - which MUST be freed - in the format: YYYYMMDDHHSS
+//
+//##############################################################################
 fn get_time_for_filename_string(allocator : std.mem.Allocator, offset : u64) ![]const u8 {
     const epoch = try std.posix.clock_gettime(.REALTIME);
     const epoch_accounting_for_tz : u64 = @intCast(epoch.sec - 18_000);
@@ -98,11 +78,82 @@ fn get_time_for_filename_string(allocator : std.mem.Allocator, offset : u64) ![]
         });
 }
 
-fn within_time_frame_of_filename(file_name : []const u8) !bool {
-    var debug_allocator : std.heap.DebugAllocator(.{}) = .init;
-    defer _ = debug_allocator.deinit();
-    const allocator = debug_allocator.allocator();
 
+//##############################################################################
+//
+// Funtion: get_windowed_time_for_filename_string
+//
+// Description: This function returns a string - WHICH MUST BE FREED
+//              (allocator.free()) for a window of time that will be used in
+//              the filename for the webcam data. 
+//              
+//              Output format will be "YYYYMMDDHHSS-YYYYMMDDHHSS". This will
+//              append to any name for the camera and will be a somewhat
+//              convenient way of knowing what time frame the data on the
+//              webcam is for.
+//
+//##############################################################################
+pub fn get_windowed_time_for_filename_string(allocator: std.mem.Allocator, offset : u64) ![]const u8 {
+    const start_time = try get_time_for_filename_string(allocator, 0);
+    defer allocator.free(start_time);
+    const end_time = try get_time_for_filename_string(allocator, offset);
+    defer allocator.free(end_time);
+
+    return try std.fmt.allocPrint(
+        allocator,
+        "{s}-{s}",
+        .{
+            start_time,
+            end_time,
+        }
+    );
+}
+
+
+//##############################################################################
+//
+// Funtion: get_windowed_time_for_filename_stringZ
+//
+// Description: This function returns a string - WHICH MUST BE FREED
+//              (allocator.free()) for a window of time that will be used in
+//              the filename for the webcam data. 
+//              
+//              Output format will be "YYYYMMDDHHSS-YYYYMMDDHHSS". This will
+//              append to any name for the camera and will be a somewhat
+//              convenient way of knowing what time frame the data on the
+//              webcam is for.
+//
+//##############################################################################
+pub fn get_windowed_time_for_filename_stringZ(allocator: std.mem.Allocator, offset : u64) ![:0]const u8 {
+    const start_time = try get_time_for_filename_string(allocator, 0);
+    defer allocator.free(start_time);
+    const end_time = try get_time_for_filename_string(allocator, offset);
+    defer allocator.free(end_time);
+
+    return try std.fmt.allocPrintSentinel(
+        allocator,
+        "{s}-{s}",
+        .{
+            start_time,
+            end_time,
+        },
+        0,
+    );
+}
+
+
+//##############################################################################
+//
+// Function: within_time_frame_of_filename
+//
+// Description: This function takes any filename that contains the output of
+//              `get_windowed_time_for_filename_string` at the end of the
+//              filename, and calculates whether or not the present moment in
+//              time is within the bounds of said files window of coverage (to
+//              figure out if a new file should start to be generated)
+//
+//##############################################################################
+fn within_time_frame_of_filename(file_name : []const u8, allocator : std.mem.Allocator) !bool {
     const end_time_end_index = file_name.len;
     const end_time_start_index = end_time_end_index - 14;
 
@@ -124,4 +175,47 @@ fn within_time_frame_of_filename(file_name : []const u8) !bool {
     }
 
     return true;
+}
+
+
+//##############################################################################
+//
+// Function: get_current_epoch_sec()
+//
+// Description: Use this function to get the current epoch seconds as a u64. It
+//              uses the posix library and is currently hardcoded for EST. (I
+//              will update this in the future)
+//
+//##############################################################################
+pub fn get_current_epoch_sec(offset : i64) !u64 {
+    const raw_epoch = try std.posix.clock_gettime(.REALTIME);
+    const epoch : u64 = @intCast(raw_epoch.sec);
+    //This is the hardcoded offset for EST
+    const positive_offset : bool = (offset > 0);
+    const abs_offset : u64 = @abs(offset);
+    if (positive_offset) {
+        return epoch + abs_offset;
+    } else {
+        return epoch - abs_offset;
+    }
+}
+
+
+//##############################################################################
+//
+// Function: get_timezone_offset_in_sec()
+//
+// Description: Function used to simplify conversion of the timezone to get an
+//              offset. It's expected that most application will require the
+//              user to know their timezone - but as I'm prototyping I want a
+//              mechanism to simply get the offset for my timezone. Will
+//              consider deletion over widespread use - but that remains to be
+//              seen. 
+//
+//##############################################################################
+pub fn get_timezone_offset_in_sec(timezone : Timezone) i64 {
+    switch(timezone) {
+        .EST => return -18_000,
+        else => unreachable,
+    }
 }

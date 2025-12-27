@@ -1,25 +1,59 @@
+//! Module that manages variables parsed from a file at runtime. 
+//!
+//! In The event that this file is not present, this module will also create the 
+//! file while also setting the defaults I've deemed appropriate.
 const std = @import("std");
 
+//Name of config file
 const CONFIG_FILE_NAME = "config.zap";
 
-var VIDEO_DURATION_IN_SECONDS : u64 = undefined;
-var BUFFER_FOR_CAMERA_HARDWARE_NAME : [64]u8 = undefined;
-var CAMERA_HARDWARE_NAME : [:0]u8 = BUFFER_FOR_CAMERA_HARDWARE_NAME[0..0 :0];
+//Fileds that are accepted/expected 
+const FIELD_DURATION = "[video duration]";
+const FIELD_HARDWARE_NAME = "[camera device name]";
+const FIELD_FRAME_RATE = "[video: frame rate]";
+const FIELD_WIDTH = "[video: width]";
+const FIELD_HEIGHT = "[video: height]";
+const FIELD_CRASH_ON_VID_DIFF = "[crash: on bad cam settings]";
+const FIELD_CRASH_ON_POOR_PERF = "[crash: poor cam performance]";
 
+
+// Variables backing global tracking of states
+// These are private by nature
+var VALUE_VIDEO_DURATION : u64 = undefined;
+var BUFFER_FOR_VALUE_CAMERA_HARDWARE_NAME : [64]u8 = undefined;
+var VALUE_CAMERA_HARDWARE_NAME : [:0]u8 = BUFFER_FOR_VALUE_CAMERA_HARDWARE_NAME[0..0 :0];
+var VALUE_FRAME_RATE : u16 = undefined;
+var VALUE_VIDEO_WIDTH : u16 = undefined;
+var VALUE_VIDEO_HEIGHT : u16 = undefined;
+var VALUE_CRASH_ON_VID_DIFF : bool = undefined;
+var VALUE_CRASH_ON_POOR_PERF : bool = undefined;
+
+
+//Getters to make the data immutable to consumers of the module. 
+/// Getter to fetch configured video duration
 pub fn get_config_video_duration() u64 {
-    return VIDEO_DURATION_IN_SECONDS;
+    return VALUE_VIDEO_DURATION;
 }
 
 pub fn get_camera_hardware_name() [:0]u8 {
-    return CAMERA_HARDWARE_NAME;
+    return VALUE_CAMERA_HARDWARE_NAME;
 }
 
-pub fn establish_config() !void {
-    //First, is there an existing config?
-    var threaded : std.Io.Threaded = .init_single_threaded;
-    defer threaded.deinit();
-    const io = threaded.io();
+pub fn get_camera_width() u16 {
+    return VALUE_VIDEO_WIDTH;
+}
 
+pub fn get_camera_height() u16 {
+    return VALUE_VIDEO_HEIGHT;
+}
+
+pub fn get_crash_on_vid_diff() bool {
+    return VALUE_CRASH_ON_VID_DIFF;
+}
+
+
+/// Function to etablish config
+pub fn establish_config(io : std.Io) !void {
     if (std.Io.Dir.openFile(std.Io.Dir.cwd(), io, CONFIG_FILE_NAME, .{})) |file| {
         try parse_file(file, io);
     }
@@ -37,21 +71,53 @@ fn parse_file(file : std.Io.File, io : std.Io) !void {
     while (file_reader.interface.takeDelimiter('\n')) |nullable_line| {
         const line = nullable_line orelse break;
         const before, const after = std.mem.cut(u8, line, " = ") orelse return error.BadInputFile;
-        if (std.mem.eql(u8, before, "[video duration]")) {
-            VIDEO_DURATION_IN_SECONDS = try std.fmt.parseInt(u64, after, 10);
+        if (std.mem.eql(u8, before, FIELD_DURATION)) {
+            VALUE_VIDEO_DURATION = try std.fmt.parseInt(u64, after, 10);
         }
-        else if (std.mem.eql(u8, before, "[camera device name]")) {
-            @memcpy(BUFFER_FOR_CAMERA_HARDWARE_NAME[0..after.len], after);
-            BUFFER_FOR_CAMERA_HARDWARE_NAME[after.len] = 0;
-            CAMERA_HARDWARE_NAME = BUFFER_FOR_CAMERA_HARDWARE_NAME[0..after.len :0];
+        else if (std.mem.eql(u8, before, FIELD_HARDWARE_NAME)) {
+            @memcpy(BUFFER_FOR_VALUE_CAMERA_HARDWARE_NAME[0..after.len], after);
+            BUFFER_FOR_VALUE_CAMERA_HARDWARE_NAME[after.len] = 0;
+            VALUE_CAMERA_HARDWARE_NAME = BUFFER_FOR_VALUE_CAMERA_HARDWARE_NAME[0..after.len :0];
+        }
+        else if (std.mem.eql(u8, before, FIELD_FRAME_RATE)) {
+            VALUE_FRAME_RATE = try std.fmt.parseInt(u16, after, 10);
+        }
+        else if (std.mem.eql(u8, before, FIELD_WIDTH)) {
+            VALUE_VIDEO_WIDTH = try std.fmt.parseInt(u16, after, 10);
+        }
+        else if (std.mem.eql(u8, before, FIELD_HEIGHT)) {
+            VALUE_VIDEO_HEIGHT = try std.fmt.parseInt(u16, after, 10);
+        }
+        else if (std.mem.eql(u8, before, FIELD_CRASH_ON_VID_DIFF)) {
+            if (std.mem.eql(u8, after, "true")) {
+                VALUE_CRASH_ON_VID_DIFF = true;
+            }
+            else if (std.mem.eql(u8, after, "false")) {
+                VALUE_CRASH_ON_VID_DIFF = false;
+            }
+            else {
+                return error.InvalidBoolSettingInConfig;
+            }
+        }
+        else if (std.mem.eql(u8, before, FIELD_CRASH_ON_POOR_PERF)) {
+            if (std.mem.eql(u8, after, "true")) {
+                VALUE_CRASH_ON_POOR_PERF = true;
+            }
+            else if (std.mem.eql(u8, after, "false")) {
+                VALUE_CRASH_ON_POOR_PERF = false;
+            }
+            else {
+                return error.InvalidBoolSettingInConfig;
+            }
         }
         else {
-            unreachable;
+            return error.InvalidOptionInFile;
         }
     } else |err| return err;
 }
 
 // New IO isn't available on writers yet - this function WILL break
+///Function to make default config file when it's not present at runtime
 fn make_default_config() !void {
     const new_file = try std.fs.Dir.createFile(
         std.fs.cwd(),
@@ -62,14 +128,30 @@ fn make_default_config() !void {
     var writer_buffer : [512]u8 = undefined;
     var writer = std.fs.File.Writer.init(new_file, &writer_buffer);
 
-    VIDEO_DURATION_IN_SECONDS = 600;
-    try writer.interface.print("[video duration] = {d}\n", .{VIDEO_DURATION_IN_SECONDS});
+    VALUE_VIDEO_DURATION = 600;
+    try writer.interface.print("{s} = {d}\n", .{FIELD_DURATION, VALUE_VIDEO_DURATION});
 
     const device = "/dev/video0";
-    @memcpy(BUFFER_FOR_CAMERA_HARDWARE_NAME[0..device.len], device);
-    BUFFER_FOR_CAMERA_HARDWARE_NAME[device.len] = 0;
-    CAMERA_HARDWARE_NAME = BUFFER_FOR_CAMERA_HARDWARE_NAME[0..device.len :0];
-    try writer.interface.print("[camera device name] = {s}\n", .{CAMERA_HARDWARE_NAME});
+    @memcpy(BUFFER_FOR_VALUE_CAMERA_HARDWARE_NAME[0..device.len], device);
+    BUFFER_FOR_VALUE_CAMERA_HARDWARE_NAME[device.len] = 0;
+    VALUE_CAMERA_HARDWARE_NAME = BUFFER_FOR_VALUE_CAMERA_HARDWARE_NAME[0..device.len :0];
+    try writer.interface.print("{s} = {s}\n", .{FIELD_HARDWARE_NAME, VALUE_CAMERA_HARDWARE_NAME});
+
+    VALUE_FRAME_RATE = 30;
+    try writer.interface.print("{s} = {d}\n", .{FIELD_FRAME_RATE, VALUE_FRAME_RATE});
+
+    VALUE_VIDEO_WIDTH = 640;
+    try writer.interface.print("{s} = {d}\n", .{FIELD_WIDTH, VALUE_VIDEO_WIDTH});
+
+    VALUE_VIDEO_HEIGHT = 480;
+    try writer.interface.print("{s} = {d}\n", .{FIELD_HEIGHT, VALUE_VIDEO_HEIGHT});
+
+    VALUE_CRASH_ON_VID_DIFF = true;
+    try writer.interface.print("{s} = {s}\n", .{FIELD_CRASH_ON_VID_DIFF, if(VALUE_CRASH_ON_VID_DIFF) "true" else "false" });
+
+    VALUE_CRASH_ON_POOR_PERF = false;
+    try writer.interface.print("{s} = {s}\n", .{FIELD_CRASH_ON_POOR_PERF, if(VALUE_CRASH_ON_POOR_PERF) "true" else "false" });
+
 
     try writer.end();
 }
