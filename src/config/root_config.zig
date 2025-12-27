@@ -51,6 +51,10 @@ pub fn get_crash_on_vid_diff() bool {
     return VALUE_CRASH_ON_VID_DIFF;
 }
 
+pub fn get_camera_frame_rate() u16 {
+    return VALUE_FRAME_RATE;
+}
+
 
 /// Function to etablish config
 pub fn establish_config(io : std.Io) !void {
