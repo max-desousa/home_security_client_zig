@@ -1,4 +1,13 @@
 const std = @import("std");
+//##############################################################################
+//
+// Enum for time zones. This will almost eclusively be used with the
+// get_timezone_offset_in_sec function.
+//
+//###############################################################################
+const Timezone = enum {
+    EST,
+};
 
 
 //##############################################################################
@@ -133,4 +142,46 @@ fn within_time_frame_of_filename(file_name : []const u8, allocator : std.mem.All
     }
 
     return true;
+}
+
+
+//##############################################################################
+//
+// Function: get_current_epoch_sec()
+//
+// Description: Use this function to get the current epoch seconds as a u64. It
+//              uses the posix library and is currently hardcoded for EST. (I
+//              will update this in the future)
+//
+//##############################################################################
+pub fn get_current_epoch_sec(offset : i64) void {
+    const epoch = try std.posix.clock_gettime(.REALTIME);
+    //This is the hardcoded offset for EST
+    const positive_offset : bool = (offset > 0);
+    const abs_offset = @abs(offset);
+    if (positive_offset) {
+        return epoch + abs_offset;
+    } else {
+        return epoch - abs_offset;
+    }
+}
+
+
+//##############################################################################
+//
+// Function: get_timezone_offset_in_sec()
+//
+// Description: Function used to simplify conversion of the timezone to get an
+//              offset. It's expected that most application will require the
+//              user to know their timezone - but as I'm prototyping I want a
+//              mechanism to simply get the offset for my timezone. Will
+//              consider deletion over widespread use - but that remains to be
+//              seen. 
+//
+//##############################################################################
+pub fn get_timezone_offset_in_sec(timezone : Timezone) i64 {
+    switch(timezone) {
+        .EST => return -18_000,
+        else => unreachable,
+    }
 }
