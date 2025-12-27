@@ -40,7 +40,7 @@ pub fn perfect_core_layout() !void {
 
     var sync_data: sync.SynchronousData = .{};
 
-    try pool.spawn(encoding.encoding_thread, .{&sync_data});
+    try pool.spawn(encoding.encoding_thread, .{&sync_data, allocator});
 
     try pool.spawn(camera.run, .{&camera_obj, &sync_data });
 }

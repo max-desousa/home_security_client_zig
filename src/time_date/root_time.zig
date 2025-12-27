@@ -7,6 +7,7 @@ const std = @import("std");
 //###############################################################################
 const Timezone = enum {
     EST,
+    California,
 };
 
 
@@ -92,10 +93,10 @@ fn get_time_for_filename_string(allocator : std.mem.Allocator, offset : u64) ![]
 //              webcam is for.
 //
 //##############################################################################
-fn get_windowed_time_for_filename_string(allocator: std.mem.Allocator, offset : u64) ![]const u8 {
+pub fn get_windowed_time_for_filename_string(allocator: std.mem.Allocator, offset : u64) ![]const u8 {
     const start_time = try get_time_for_filename_string(allocator, 0);
     defer allocator.free(start_time);
-    const end_time = try get_windowed_time_for_filename_string(allocator, offset);
+    const end_time = try get_time_for_filename_string(allocator, offset);
     defer allocator.free(end_time);
 
     return try std.fmt.allocPrint(
@@ -105,6 +106,38 @@ fn get_windowed_time_for_filename_string(allocator: std.mem.Allocator, offset : 
             start_time,
             end_time,
         }
+    );
+}
+
+
+//##############################################################################
+//
+// Funtion: get_windowed_time_for_filename_stringZ
+//
+// Description: This function returns a string - WHICH MUST BE FREED
+//              (allocator.free()) for a window of time that will be used in
+//              the filename for the webcam data. 
+//              
+//              Output format will be "YYYYMMDDHHSS-YYYYMMDDHHSS". This will
+//              append to any name for the camera and will be a somewhat
+//              convenient way of knowing what time frame the data on the
+//              webcam is for.
+//
+//##############################################################################
+pub fn get_windowed_time_for_filename_stringZ(allocator: std.mem.Allocator, offset : u64) ![:0]const u8 {
+    const start_time = try get_time_for_filename_string(allocator, 0);
+    defer allocator.free(start_time);
+    const end_time = try get_time_for_filename_string(allocator, offset);
+    defer allocator.free(end_time);
+
+    return try std.fmt.allocPrintSentinel(
+        allocator,
+        "{s}-{s}",
+        .{
+            start_time,
+            end_time,
+        },
+        0,
     );
 }
 
@@ -154,11 +187,12 @@ fn within_time_frame_of_filename(file_name : []const u8, allocator : std.mem.All
 //              will update this in the future)
 //
 //##############################################################################
-pub fn get_current_epoch_sec(offset : i64) void {
-    const epoch = try std.posix.clock_gettime(.REALTIME);
+pub fn get_current_epoch_sec(offset : i64) !u64 {
+    const raw_epoch = try std.posix.clock_gettime(.REALTIME);
+    const epoch : u64 = @intCast(raw_epoch.sec);
     //This is the hardcoded offset for EST
     const positive_offset : bool = (offset > 0);
-    const abs_offset = @abs(offset);
+    const abs_offset : u64 = @abs(offset);
     if (positive_offset) {
         return epoch + abs_offset;
     } else {

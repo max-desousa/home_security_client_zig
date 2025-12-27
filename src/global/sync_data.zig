@@ -26,6 +26,8 @@ pub const ThreadingErrors = error{
     CameraRunOutOfBuffers,
     CameraCouldNotFreeBuffer,
     SigIntRequested,
+    EncoderCouldNotGenerateFilename,
+    EncoderCouldNotGetCurrentTime,
 };
 
 pub const SynchronousData = struct {

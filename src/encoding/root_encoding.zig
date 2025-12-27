@@ -21,10 +21,10 @@ fn set_encoder_context(encoder: *c.struct_AVCodec) ?*c.struct_AVCodecContext {
     // ------ Encoder parameters ------
     enc_ctx.width = config.get_camera_width();
     enc_ctx.height = config.get_camera_height();
-    enc_ctx.time_base = .{ .num = 1, .den = 1_000_000 };
+    enc_ctx.time_base = .{ .num = 1, .den = 90_000 };
     enc_ctx.framerate = .{ .num = 1, .den = 1 };
     enc_ctx.pix_fmt = c.AV_PIX_FMT_YUV420P;
-    enc_ctx.bit_rate = 2_000_000;
+    enc_ctx.bit_rate = 500_000;
     enc_ctx.gop_size = 30;
     enc_ctx.max_b_frames = 0;
     enc_ctx.flags |= c.AV_CODEC_FLAG_GLOBAL_HEADER;
@@ -42,7 +42,7 @@ fn set_encoder_context(encoder: *c.struct_AVCodec) ?*c.struct_AVCodecContext {
 // Description: This is the main entry point for running the endless encoding
 //              loop for the captured frames.
 //##############################################################################
-pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
+pub fn encoding_thread(sync_data: *sync.SynchronousData, allocator : std.mem.Allocator) void {
     debug.print("\tLooking for H.264 encoder...\n", .{});
 
     // Step 1: Find the H.264 encoder
@@ -65,19 +65,23 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData) void {
     }
 
     while (null == sync_data.sync_error) {
-        create_video(sync_data, file_name, duration);
+        const duration = config.get_config_video_duration(); // 10 minutes
+        const file_name_window = time.get_windowed_time_for_filename_stringZ(allocator, duration) catch {
+            set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotGenerateFilename);
+            return;
+        };
+        defer allocator.free(file_name_window);
+
+        var file_name_buffer : [256]u8 = undefined;
+        const file_name = std.fmt.bufPrintSentinel(&file_name_buffer, "laptop_webcam_{s}.mp4", .{file_name_window}, 0) catch {
+            set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotGenerateFilename);
+            return;
+        };
+
+        create_video(sync_data, enc_ctx, file_name, duration);
     }
     std.debug.print("Encoding thread was ended due to encountering sync_data error: {any}\n", .{sync_data.sync_error.?});
 
-    for (0..6) |i| {
-
-
-        while (true) {
-            // 10-second limit
-
-        }
-
-    }
     set_error(sync_data, sync.ThreadingErrors.PrototypeEncoderNaturallyDone);
 }
 
@@ -93,7 +97,12 @@ fn create_video(
     file_name : [:0]const u8,
     duration : u64,
 ) void {
-    const ending_time = time.get_current_epoch_sec(time.get_timezone_offset_in_sec(.EST)) + duration;
+    const starting_time = time.get_current_epoch_sec(time.get_timezone_offset_in_sec(.EST)) catch {
+        set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotGetCurrentTime);
+        return;
+    };
+    const ending_time =  starting_time + duration;
+
     var nullable_output_fmt_ctx : ?*c.struct_AVFormatContext = null;
     if (c.avformat_alloc_output_context2(@ptrCast(&nullable_output_fmt_ctx), null, null, file_name) < 0) {
         set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotSetOutputContext);
@@ -130,11 +139,19 @@ fn create_video(
         return;
     }
 
+    var starting_pts_us : ?i64 = null;
+
     // Reuse this for every frame (huge speedup)
     var sws_ctx: ?*c.struct_SwsContext = null;
     defer if (sws_ctx) |ctx| c.sws_freeContext(ctx);
 
-    while (ending_time > time.get_current_epoch_sec(time.get_timezone_offset_in_sec(.EST))) {
+    var current_time = time.get_current_epoch_sec(time.get_timezone_offset_in_sec(.EST)) catch {
+        set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotGetCurrentTime);
+        return;
+    };
+
+    while ((ending_time > current_time) and 
+           (null == sync_data.sync_error)) {
         const buf_idx = sync_data.get_first() orelse continue;
         const buffer_index = buf_idx;
 
@@ -187,33 +204,43 @@ fn create_video(
         const pts_us : i64 =
             sync_data.buffers[buffer_index].time_stamp.tv_sec * 1_000_000 +
             sync_data.buffers[buffer_index].time_stamp.tv_usec;
+        if (null == starting_pts_us) {
+            starting_pts_us = pts_us;
+        }
+
+        dst_frame.pts = pts_us - starting_pts_us.?;
 
         // ----- Encode -----
-        _ = c.avcodec_send_frame(@ptrCast(enc_ctx), @ptrCast(dst_frame));
+        _ = c.avcodec_send_frame(@ptrCast(encoder_ctx), @ptrCast(dst_frame));
 
         var pkt: c.AVPacket = undefined;
         c.av_init_packet(&pkt);
 
         while (true) {
-            const ret = c.avcodec_receive_packet(@ptrCast(enc_ctx), &pkt);
+            const ret = c.avcodec_receive_packet(@ptrCast(encoder_ctx), &pkt);
             if (ret == c.AVERROR(c.EAGAIN) or ret == c.AVERROR_EOF) break;
             if (ret < 0) break;
 
             pkt.stream_index = 0;
             // rescale to stream time base (already the same, but safe)
-            pkt.pts = c.av_rescale_q_rnd(pkt.pts, enc_ctx.time_base, stream.time_base, c.AV_ROUND_NEAR_INF);
+            pkt.pts = c.av_rescale_q_rnd(pkt.pts, encoder_ctx.time_base, stream.time_base, c.AV_ROUND_NEAR_INF);
             pkt.dts = pkt.pts;
             //pkt.duration = c.av_rescale_q(1, enc_ctx.time_base, stream.time_base);
             pkt.duration = 0;
 
-            _ = c.av_interleaved_write_frame(@ptrCast(out_ctx), &pkt);
+            _ = c.av_interleaved_write_frame(@ptrCast(output_fmt_ctx), &pkt);
             c.av_packet_unref(&pkt);
         }
 
         sync_data.pop() catch {};
+
+        current_time = time.get_current_epoch_sec(time.get_timezone_offset_in_sec(.EST)) catch {
+            set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotGetCurrentTime);
+            return;
+        };
     }
 
     // ----- Finalise file -----
-    _ = c.av_write_trailer(@ptrCast(out_ctx));
+    _ = c.av_write_trailer(@ptrCast(output_fmt_ctx));
     debug.print("Finished – output.mp4 is ready and playable!\n", .{});
 }
