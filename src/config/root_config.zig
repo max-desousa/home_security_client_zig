@@ -15,6 +15,8 @@ const FIELD_WIDTH = "[video: width]";
 const FIELD_HEIGHT = "[video: height]";
 const FIELD_CRASH_ON_VID_DIFF = "[crash: on bad cam settings]";
 const FIELD_CRASH_ON_POOR_PERF = "[crash: poor cam performance]";
+const FIELD_CRF_VALUE = "[video: crf value]";
+const FIELD_CAMERA_NAME = "[camera name for archiving]";
 
 
 // Variables backing global tracking of states
@@ -27,6 +29,9 @@ var VALUE_VIDEO_WIDTH : u16 = undefined;
 var VALUE_VIDEO_HEIGHT : u16 = undefined;
 var VALUE_CRASH_ON_VID_DIFF : bool = undefined;
 var VALUE_CRASH_ON_POOR_PERF : bool = undefined;
+var VALUE_CRF_VALUE : u8 = undefined;
+var BUFFER_FOR_VALUE_CAMERA_NAME : [128]u8 = undefined;
+var VALUE_CAMERA_NAME : [:0]u8 = BUFFER_FOR_VALUE_CAMERA_NAME[0..0 :0];
 
 
 //Getters to make the data immutable to consumers of the module. 
@@ -53,6 +58,14 @@ pub fn get_crash_on_vid_diff() bool {
 
 pub fn get_camera_frame_rate() u16 {
     return VALUE_FRAME_RATE;
+}
+
+pub fn get_crf_value() u8 {
+    return VALUE_CRF_VALUE;
+}
+
+pub fn get_camera_name() [:0]u8 {
+    return VALUE_CAMERA_NAME;
 }
 
 
@@ -114,6 +127,14 @@ fn parse_file(file : std.Io.File, io : std.Io) !void {
                 return error.InvalidBoolSettingInConfig;
             }
         }
+        else if (std.mem.eql(u8, before, FIELD_CRF_VALUE)) {
+            VALUE_CRF_VALUE = try std.fmt.parseInt(u8, after, 10);
+        }
+        else if (std.mem.eql(u8, before, FIELD_CAMERA_NAME)) {
+            @memcpy(BUFFER_FOR_VALUE_CAMERA_NAME[0..after.len], after);
+            BUFFER_FOR_VALUE_CAMERA_NAME[after.len] = 0;
+            VALUE_CAMERA_NAME = BUFFER_FOR_VALUE_CAMERA_NAME[0..after.len :0];
+        }
         else {
             return error.InvalidOptionInFile;
         }
@@ -156,6 +177,20 @@ fn make_default_config() !void {
     VALUE_CRASH_ON_POOR_PERF = false;
     try writer.interface.print("{s} = {s}\n", .{FIELD_CRASH_ON_POOR_PERF, if(VALUE_CRASH_ON_POOR_PERF) "true" else "false" });
 
+    VALUE_CRF_VALUE = 25;
+    try writer.interface.print("{s} = {d}\n", .{FIELD_CRF_VALUE, VALUE_CRF_VALUE});
+
+    var prng = std.Random.Xoshiro256.init(blk: {
+        var seed: u64 = undefined;
+        try std.posix.getrandom(std.mem.asBytes(&seed));
+        break :blk seed;
+    }); 
+    const rand = prng.random();
+    const rand_number = rand.int(u32);
+    const foo = try std.fmt.bufPrint(&BUFFER_FOR_VALUE_CAMERA_NAME, "NewCamera-{d:0>10}", .{rand_number});
+    BUFFER_FOR_VALUE_CAMERA_NAME[foo.len] = 0;
+    VALUE_CAMERA_NAME = BUFFER_FOR_VALUE_CAMERA_NAME[0..foo.len :0];
+    try writer.interface.print("{s} = {s}\n", .{FIELD_CAMERA_NAME, VALUE_CAMERA_NAME});
 
     try writer.end();
 }
