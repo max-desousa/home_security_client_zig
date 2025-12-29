@@ -219,3 +219,144 @@ pub fn get_timezone_offset_in_sec(timezone : Timezone) i64 {
         else => unreachable,
     }
 }
+
+//##############################################################################
+//
+// Function: is_valid_time_window
+//
+// Description: This function checks to see if a given configuration for a 
+//              duration of videos can be enenly divisible into standard time. 
+//              (videos are cleaner when named if they can neglect seconds and 
+//              videos are shorter than a day)
+//
+//##############################################################################
+pub fn is_valid_time_window(duration: u64) bool {
+    // Check if duration is evenly divisible with a single minute
+    if (60 > duration) {
+        false;
+    }
+    if (60 == duration) {
+        return true;
+    }
+    // Check if duration is evenly divisible with a 10 minutes
+    if (600 >= duration) {
+        return (0 == (600 % duration));
+    }
+    // Check if duration is evenly divisible with a single hour
+    if (3_600 >= duration) {
+        return (0 == (3_600 % duration));
+    }
+    // Check if duration is evenly divisible with a single day
+    if (86_400 >= duration) {
+        return (0 == (86_400 % duration));
+    }
+    return false;
+}
+
+fn get_divisor(duration: u64) !u64 {
+    if (60 == duration) {
+        return 1;
+    }
+    // Check if duration is evenly divisible with a 10 minutes
+    if (600 >= duration) {
+        return @divFloor(600, duration);
+    }
+    // Check if duration is evenly divisible with a single hour
+    if (3_600 >= duration) {
+        return @divFloor(3_600, duration);
+    }
+    // Check if duration is evenly divisible with a single day
+    if (86_400 >= duration) {
+        return @divFloor(86_400, duration);
+    }
+    return error.InvalidDuration;
+}
+// New file format for simplicity in reading [camera_name]-YYYYMMDD_aabb_AABB
+pub fn new_time(allocator: std.mem.Allocator, duration : u64) !void {
+    if (false == is_valid_time_window(duration)) {
+        return error.InvalidTimeWindow;
+    }
+    const raw_seconds_epoch = try get_current_epoch_sec(get_timezone_offset_in_sec(.EST));
+    const epoch_seconds : std.time.epoch.EpochSeconds = .{ .secs = raw_seconds_epoch };
+    const day_seconds = epoch_seconds.getDaySeconds();
+    const epoch_day = epoch_seconds.getEpochDay();
+    const year_and_day = epoch_day.calculateYearDay();
+    const month_and_day = year_and_day.calculateMonthDay();
+
+    const year = year_and_day.year;
+    const month = month_and_day.month.numeric();
+    const day = month_and_day.day_index;
+    const hour = day_seconds.getHoursIntoDay();
+    const minute = day_seconds.getMinutesIntoHour();
+
+    var rollover_hour : bool = false;
+
+    const next_minute = blk: {
+        var calc_minute : u16 = minute + 10;
+        calc_minute = calc_minute % 10;
+        if (calc_minute >= 60) {
+            calc_minute = 0;
+            rollover_hour = true;
+        }
+        break :blk calc_minute;
+    };
+
+    const next_hour = blk: {
+        var calc_hour : u16 = hour;
+        if (rollover_hour) {
+            calc_hour = calc_hour + 1;
+            if (calc_hour >= 24) {
+                calc_hour = 0;
+            }
+        }
+        break :blk calc_hour;
+    };
+
+    return try std.fmt.allocPrint(allocator, "{d:0>4}{d:0>2}{d:0>2}_{d:0>2}{d:0>2}_{d:0>2}{d:0>2}", .{
+        year,
+        month,
+        day,
+        hour,
+        minute,
+        next_hour,
+        next_minute,
+    });
+}
+
+pub fn is_time_in_current_window(file_name: []const u8, allocator: std.mem.Allocator) !bool {
+    const raw_current_epoch_sec = try get_current_epoch_sec(get_timezone_offset_in_sec(.EST));
+    const epoch_seconds : std.time.epoch.EpochSeconds = .{ .secs = raw_current_epoch_sec };
+
+    const year = try std.fmt.parseInt(u16, file_name[0..4], 10);
+    const epoch_day = epoch_seconds.getEpochDay();
+    const year_and_day = epoch_day.calculateYearDay();
+    const current_year = year_and_day.year;
+    if (current_year > year) {
+        return false;
+    }
+
+    const month = try std.fmt.parseInt(u8, file_name[4..6], 10);
+    const month_and_day = year_and_day.calculateMonthDay();
+    const current_month = month_and_day.month.numeric();
+    if (current_month > month) {
+        return false;
+    }
+
+    const day = try std.fmt.parseInt(u8, file_name[6..8], 10);
+    if (current_day > day) {
+        return false;
+    }
+    if (current_hour > hour) {
+        return false;
+    }
+    if (current_minute > minute) {
+        return false;
+    }
+
+    const hour = try std.fmt.parseInt(u8, file_name[14..16], 10);
+    const minute = try std.fmt.parseInt(u8, file_name[16..18], 10);
+
+    const calculated_epoch_seconds : u64 = blk: {
+
+    };
+}
