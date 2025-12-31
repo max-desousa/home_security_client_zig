@@ -14,6 +14,9 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/time_date/root_time.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{
+            .{ .name = "config", .module = mod_config },
+        },
     });
 
     const mod_c_imports = b.createModule(.{

@@ -73,19 +73,19 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData, allocator : std.mem.All
 
     while (null == sync_data.sync_error) {
         const duration = config.get_config_video_duration(); // 10 minutes
-        const file_name_window = time.get_windowed_time_for_filename_stringZ(allocator, duration) catch {
+        const file_name_window = time.get_windowed_time_for_filename_string(allocator, duration) catch {
             set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotGenerateFilename);
             return;
         };
         defer allocator.free(file_name_window);
 
         var file_name_buffer : [256]u8 = undefined;
-        const file_name = std.fmt.bufPrintSentinel(&file_name_buffer, "{s}_{s}.mp4", .{config.get_camera_name(), file_name_window}, 0) catch {
+        const file_name = std.fmt.bufPrintSentinel(&file_name_buffer, "{s}-{s}.mp4", .{config.get_camera_name(), file_name_window}, 0) catch {
             set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotGenerateFilename);
             return;
         };
 
-        create_video(sync_data, enc_ctx, file_name, duration);
+        create_video(sync_data, enc_ctx, file_name);
     }
     std.debug.print("Encoding thread was ended due to encountering sync_data error: {any}\n", .{sync_data.sync_error.?});
 
@@ -102,14 +102,7 @@ fn create_video(
     sync_data : *sync.SynchronousData,
     encoder_ctx : *c.struct_AVCodecContext,
     file_name : [:0]const u8,
-    duration : u64,
 ) void {
-    const starting_time = time.get_current_epoch_sec(time.get_timezone_offset_in_sec(.EST)) catch {
-        set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotGetCurrentTime);
-        return;
-    };
-    const ending_time =  starting_time + duration;
-
     var nullable_output_fmt_ctx : ?*c.struct_AVFormatContext = null;
     if (c.avformat_alloc_output_context2(@ptrCast(&nullable_output_fmt_ctx), null, null, file_name) < 0) {
         set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotSetOutputContext);
@@ -152,13 +145,20 @@ fn create_video(
     var sws_ctx: ?*c.struct_SwsContext = null;
     defer if (sws_ctx) |ctx| c.sws_freeContext(ctx);
 
-    var current_time = time.get_current_epoch_sec(time.get_timezone_offset_in_sec(.EST)) catch {
-        set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotGetCurrentTime);
-        return;
-    };
+    // Assume time is valid for one frame to ensure video is made.
+    var still_in_relevant_time_window : bool = true;
 
-    while ((ending_time > current_time) and 
+    while ((still_in_relevant_time_window) and 
            (null == sync_data.sync_error)) {
+
+        defer {
+            still_in_relevant_time_window = time.is_time_in_current_window(file_name[0..(file_name.len - 4)]) catch |err| blk: {
+                debug.print("Error checking time window: {any}\n", .{err});
+                set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotGetCurrentTime);
+                break :blk false;
+            };
+        }
+
         const buf_idx = sync_data.get_first() orelse continue;
         const buffer_index = buf_idx;
 
@@ -241,11 +241,6 @@ fn create_video(
         }
 
         sync_data.pop() catch {};
-
-        current_time = time.get_current_epoch_sec(time.get_timezone_offset_in_sec(.EST)) catch {
-            set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotGetCurrentTime);
-            return;
-        };
     }
 
     // ----- Finalise file -----
