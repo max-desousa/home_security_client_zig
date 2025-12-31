@@ -1,15 +1,5 @@
 const std = @import("std");
-//##############################################################################
-//
-// Enum for time zones. This will almost eclusively be used with the
-// get_timezone_offset_in_sec function.
-//
-//###############################################################################
-const Timezone = enum {
-    EST,
-    California,
-};
-
+const config = @import("config");
 
 //##############################################################################
 //
@@ -33,7 +23,11 @@ fn get_current_time_as_string(allocator : std.mem.Allocator) ![]const u8 {
     const minutes_into_hour = day_seconds.getMinutesIntoHour();
     const seconds_into_minute = day_seconds.getSecondsIntoMinute();
 
-    return try std.fmt.allocPrint(allocator, "{d:0>2}:{d:0>2}:{d:0>2}", .{hours_into_day, minutes_into_hour, seconds_into_minute});
+    return try std.fmt.allocPrint(
+        allocator, 
+        "{d:0>2}:{d:0>2}:{d:0>2}",
+        .{hours_into_day, minutes_into_hour, seconds_into_minute}
+    );
 }
 
 
@@ -81,69 +75,6 @@ fn get_time_for_filename_string(allocator : std.mem.Allocator, offset : u64) ![]
 
 //##############################################################################
 //
-// Funtion: get_windowed_time_for_filename_string
-//
-// Description: This function returns a string - WHICH MUST BE FREED
-//              (allocator.free()) for a window of time that will be used in
-//              the filename for the webcam data. 
-//              
-//              Output format will be "YYYYMMDDHHSS-YYYYMMDDHHSS". This will
-//              append to any name for the camera and will be a somewhat
-//              convenient way of knowing what time frame the data on the
-//              webcam is for.
-//
-//##############################################################################
-pub fn get_windowed_time_for_filename_string(allocator: std.mem.Allocator, offset : u64) ![]const u8 {
-    const start_time = try get_time_for_filename_string(allocator, 0);
-    defer allocator.free(start_time);
-    const end_time = try get_time_for_filename_string(allocator, offset);
-    defer allocator.free(end_time);
-
-    return try std.fmt.allocPrint(
-        allocator,
-        "{s}-{s}",
-        .{
-            start_time,
-            end_time,
-        }
-    );
-}
-
-
-//##############################################################################
-//
-// Funtion: get_windowed_time_for_filename_stringZ
-//
-// Description: This function returns a string - WHICH MUST BE FREED
-//              (allocator.free()) for a window of time that will be used in
-//              the filename for the webcam data. 
-//              
-//              Output format will be "YYYYMMDDHHSS-YYYYMMDDHHSS". This will
-//              append to any name for the camera and will be a somewhat
-//              convenient way of knowing what time frame the data on the
-//              webcam is for.
-//
-//##############################################################################
-pub fn get_windowed_time_for_filename_stringZ(allocator: std.mem.Allocator, offset : u64) ![:0]const u8 {
-    const start_time = try get_time_for_filename_string(allocator, 0);
-    defer allocator.free(start_time);
-    const end_time = try get_time_for_filename_string(allocator, offset);
-    defer allocator.free(end_time);
-
-    return try std.fmt.allocPrintSentinel(
-        allocator,
-        "{s}-{s}",
-        .{
-            start_time,
-            end_time,
-        },
-        0,
-    );
-}
-
-
-//##############################################################################
-//
 // Function: within_time_frame_of_filename
 //
 // Description: This function takes any filename that contains the output of
@@ -183,16 +114,17 @@ fn within_time_frame_of_filename(file_name : []const u8, allocator : std.mem.All
 // Function: get_current_epoch_sec()
 //
 // Description: Use this function to get the current epoch seconds as a u64. It
-//              uses the posix library and is currently hardcoded for EST. (I
-//              will update this in the future)
+//              uses the posix library.
 //
 //##############################################################################
 pub fn get_current_epoch_sec(offset : i64) !u64 {
     const raw_epoch = try std.posix.clock_gettime(.REALTIME);
     const epoch : u64 = @intCast(raw_epoch.sec);
-    //This is the hardcoded offset for EST
+
     const positive_offset : bool = (offset > 0);
+
     const abs_offset : u64 = @abs(offset);
+
     if (positive_offset) {
         return epoch + abs_offset;
     } else {
@@ -200,25 +132,6 @@ pub fn get_current_epoch_sec(offset : i64) !u64 {
     }
 }
 
-
-//##############################################################################
-//
-// Function: get_timezone_offset_in_sec()
-//
-// Description: Function used to simplify conversion of the timezone to get an
-//              offset. It's expected that most application will require the
-//              user to know their timezone - but as I'm prototyping I want a
-//              mechanism to simply get the offset for my timezone. Will
-//              consider deletion over widespread use - but that remains to be
-//              seen. 
-//
-//##############################################################################
-pub fn get_timezone_offset_in_sec(timezone : Timezone) i64 {
-    switch(timezone) {
-        .EST => return -18_000,
-        else => unreachable,
-    }
-}
 
 //##############################################################################
 //
@@ -272,14 +185,28 @@ fn get_divisor(duration: u64) !u64 {
     return error.InvalidDuration;
 }
 
+const DAY_IN_SECONDS : u64 = 86_400;
 
-pub fn get_time_window_for_file(allocator: std.mem.Allocator, duration : u64) ![]u8 {
-    //if (false == is_valid_time_window(duration)) {
-    if (86_400 < duration) {
+//##############################################################################
+//
+// Funtion: get_windowed_time_for_filename_string
+//
+// Description: This function returns a string - WHICH MUST BE FREED
+//              (allocator.free()) for a window of time that will be used in
+//              the filename for the webcam data. 
+//              
+//              Output format will be "[camera]-YYYYMMDD_HHMM_hhmm". This will
+//              append to any name for the camera and will be a somewhat
+//              convenient way of knowing what time frame the data on the
+//              webcam is for.
+//
+//##############################################################################
+pub fn get_windowed_time_for_filename_string(allocator: std.mem.Allocator, duration : u64) ![:0]u8 {
+    if (DAY_IN_SECONDS < duration) {
         return error.InvalidTimeWindow;
     }
 
-    const raw_epoch_seconds_start = try get_current_epoch_sec(get_timezone_offset_in_sec(.EST));
+    const raw_epoch_seconds_start = try get_current_epoch_sec(config.get_utc_offset_seconds());
     const raw_epoch_seconds_end = raw_epoch_seconds_start + duration;
     std.debug.print("raw_epoch_seconds_start : {d}\n", .{raw_epoch_seconds_start});
     std.debug.print("raw_epoch_seconds_end   : {d}\n", .{raw_epoch_seconds_end});
@@ -331,6 +258,9 @@ pub fn get_time_window_for_file(allocator: std.mem.Allocator, duration : u64) ![
         else => end_hour,
     };
 
+    // Handle when we naturally roll over to midnight. This check is specific
+    // to smaller increments that were naturally adjusted and will hit the end
+    // of the day.
     if ((0 == adjusted_hour) and
         (0 == adjusted_minutes)) {
         adjusted_hour = 24;
@@ -344,8 +274,12 @@ pub fn get_time_window_for_file(allocator: std.mem.Allocator, duration : u64) ![
 
     // Handle when a custom time rolls over to the next day (we don't support
     // it in this filename format). When this happens we'll truncate the video
-    // to end at 23:59 of the starting day, then the custom time will be picked
+    // to end at 24:00 of the starting day, then the custom time will be picked
     // up in the next file.
+    //
+    // This instance/check only applies to times that weren't adjustd
+    // previously "nice" even times that naturally had 00:00 ending's - (say...
+    // a 7 hour video duration selected by the user)
     if (((adjusted_minutes != 0) or 
          (adjusted_hour != 0)) and 
         (end_day != day)){
@@ -354,29 +288,54 @@ pub fn get_time_window_for_file(allocator: std.mem.Allocator, duration : u64) ![
     }
 
 
-    return try std.fmt.allocPrint(allocator, "{d:0>4}{d:0>2}{d:0>2}_{d:0>2}{d:0>2}_{d:0>2}{d:0>2}", .{
-        year,
-        month,
-        day,
-        start_hour,
-        start_minute,
-        adjusted_hour,
-        adjusted_minutes,
-    });
+    return try std.fmt.allocPrintSentinel(
+        allocator,
+        "{d:0>4}{d:0>2}{d:0>2}_{d:0>2}{d:0>2}_{d:0>2}{d:0>2}",
+        .{
+            year,
+            month,
+            day,
+            start_hour,
+            start_minute,
+            adjusted_hour,
+            adjusted_minutes,
+        },
+        0,
+    );
 }
 
+
+//##############################################################################
+//
+// Function:
+//
+// Description: This is a function that takes the string - intended for the
+//              filename for a recording - that represents a window of time and
+//              determins if the current time is within that window.
+//              
+//              The most common (intended) use case for this function is to
+//              determine if a new recording file should be started based on
+//              the current time and the window of time represented by the
+//              filename.
+//
+//##############################################################################
 pub fn is_time_in_current_window(file_name: []const u8) !bool {
-    const raw_current_epoch_sec = try get_current_epoch_sec(get_timezone_offset_in_sec(.EST));
+    // Create epoch object for current time (can err due to posix call)
+    const raw_current_epoch_sec = try get_current_epoch_sec(config.get_utc_offset_seconds());
     const epoch_seconds : std.time.epoch.EpochSeconds = .{ .secs = raw_current_epoch_sec };
 
-    const target_year = try std.fmt.parseInt(u16, file_name[0..4], 10);
-    const target_month = try std.fmt.parseInt(u8, file_name[4..6], 10);
-    const target_day = try std.fmt.parseInt(u8, file_name[6..8], 10);
-    const target_start_hour = try std.fmt.parseInt(u17, file_name[9..11], 10);
-    const target_start_minute = try std.fmt.parseInt(u17, file_name[11..13], 10);
-    const target_end_hour = try std.fmt.parseInt(u17, file_name[14..16], 10);
-    const target_end_minute = try std.fmt.parseInt(u17, file_name[16..18], 10);
+    const str_len = file_name.len;
 
+    // Get numerical values from the filename string to compare against
+    const target_year = try std.fmt.parseInt(u16, file_name[(str_len - 18)..(str_len - 14)], 10);
+    const target_month = try std.fmt.parseInt(u8, file_name[(str_len - 14)..(str_len - 12)], 10);
+    const target_day = try std.fmt.parseInt(u8, file_name[(str_len - 12)..(str_len - 10)], 10);
+    const target_start_hour = try std.fmt.parseInt(u17, file_name[(str_len - 9)..(str_len - 7)], 10);
+    const target_start_minute = try std.fmt.parseInt(u17, file_name[(str_len - 7)..(str_len - 5)], 10);
+    const target_end_hour = try std.fmt.parseInt(u17, file_name[(str_len - 4)..(str_len - 2)], 10);
+    const target_end_minute = try std.fmt.parseInt(u17, file_name[(str_len - 2)..(str_len)], 10);
+
+    // Check that year is valid
     const epoch_day = epoch_seconds.getEpochDay();
     const year_and_day = epoch_day.calculateYearDay();
     const current_year = year_and_day.year;
@@ -385,6 +344,7 @@ pub fn is_time_in_current_window(file_name: []const u8) !bool {
         return false;
     }
 
+    // Check that month is valid
     const month_and_day = year_and_day.calculateMonthDay();
     const current_month = month_and_day.month.numeric();
     if (target_month != current_month) {
@@ -392,19 +352,22 @@ pub fn is_time_in_current_window(file_name: []const u8) !bool {
         return false;
     }
 
+    // Check that day is valid
     const current_day = month_and_day.day_index + 1;
     if (target_day != current_day) {
         std.debug.print("Day mismatch: target_day={d}, current_day={d}\n", .{target_day, current_day});
         return false;
     }
 
-
+    // get seconds into the day for current time
     const day_seconds = epoch_seconds.getDaySeconds();
     const seconds_into_day = day_seconds.secs;
 
+    // convert the target times into seconds into the day
     const end_time_in_day_seconds : u17 = @intCast((target_end_hour * 3600) + (target_end_minute * 60));
     const start_time_in_day_seconds : u17 = @intCast((target_start_hour * 3600) + (target_start_minute * 60));
 
+    // Check that current time is within the window (using reference to seconds into the day)
     const in_window = (seconds_into_day >= start_time_in_day_seconds) and (seconds_into_day <= end_time_in_day_seconds);
     return in_window;
 }
