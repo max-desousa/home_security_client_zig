@@ -34,8 +34,8 @@ pub fn run(self : *Camera, sync_data: *sync.SynchronousData) void {
 
 pub fn infinite_capture(self: *Camera, sync_data: *sync.SynchronousData) void {
     self.start_capturing() catch |err| {
-        std.debug.print("There was an error starting the capturing of frames with the camera...\n", .{});
-        std.debug.print("\tError code: {any}\n", .{err});
+        debug.print("There was an error starting the capturing of frames with the camera...\n", .{});
+        debug.print("\tError code: {any}\n", .{err});
         {
             sync_data.mutex.lock();
             defer sync_data.mutex.unlock();
@@ -45,8 +45,8 @@ pub fn infinite_capture(self: *Camera, sync_data: *sync.SynchronousData) void {
     };
     while (true) {
         if (null != sync_data.sync_error) {
-            std.debug.print("External error - closing camera thread...\n", .{});
-            std.debug.print("\tExternal error was: {any}\n", .{sync_data.sync_error.?});
+            debug.print("External error - closing camera thread...\n", .{});
+            debug.print("\tExternal error was: {any}\n", .{sync_data.sync_error.?});
             return;
         }
 
@@ -56,16 +56,16 @@ pub fn infinite_capture(self: *Camera, sync_data: *sync.SynchronousData) void {
             while (sync_data.free_flags.findFirstSet()) |num| {
                 sync_data.free_flags.unset(num);
                 self.release_buffer(@intCast(num)) catch |err| {
-                    std.debug.print("Error Freeing buffer...\n", .{});
-                    std.debug.print("\tError code: {any}\n", .{err});
+                    debug.print("Error Freeing buffer...\n", .{});
+                    debug.print("\tError code: {any}\n", .{err});
                     break;
                 };
             }
         }
 
         const frame_captured = self.capture_single_frame() catch |err| {
-            std.debug.print("Error capturing a frame from the camera...\n", .{});
-            std.debug.print("\tError received was: {any}\n", .{err});
+            debug.print("Error capturing a frame from the camera...\n", .{});
+            debug.print("\tError received was: {any}\n", .{err});
             {
                 sync_data.mutex.lock();
                 defer sync_data.mutex.unlock();
@@ -81,7 +81,7 @@ pub fn infinite_capture(self: *Camera, sync_data: *sync.SynchronousData) void {
             sync_data.mutex.lock();
             defer sync_data.mutex.unlock();
             sync_data.sync_error = sync.ThreadingErrors.CameraRunOutOfBuffers;
-            std.debug.print("Camera ran out of buffers... aborting\n", .{});
+            debug.print("Camera ran out of buffers... aborting\n", .{});
             return;
         }
     }
@@ -102,8 +102,8 @@ fn check_and_release_buffer(self: *Camera, sync_data: *sync.SynchronousData) voi
         sync_data.mutex.lock();
         defer sync_data.mutex.unlock();
         sync_data.sync_error = sync.ThreadingErrors.CameraCouldNotFreeBuffer;
-        std.debug.print("Could not free buffer...\n", .{});
-        std.debug.print("\tError received: {any}\n", .{err});
+        debug.print("Could not free buffer...\n", .{});
+        debug.print("\tError received: {any}\n", .{err});
         return;
     };
     self.private_tail = ((self.private_tail + 1) % sync_data.BUFFER_SIZE);
@@ -156,20 +156,20 @@ fn check_if_device_exists(self: Camera) bool {
         );
 
         if (-1 == statx_check) {
-            std.debug.print("Failed to get device status.\n", .{});
+            debug.print("Failed to get device status.\n", .{});
             return false;
             //return error.FStatFailed;
         }
 
-        std.debug.print("Device status obtained.\n", .{});
+        debug.print("Device status obtained.\n", .{});
 
         if (!std.c.S.ISCHR(statx.mode)) {
-            std.debug.print("{s} is not a character device.\n", .{name});
+            debug.print("{s} is not a character device.\n", .{name});
             return false;
             //return error.NotCharacterDevice;
         }
 
-        std.debug.print("{s} is a character device.\n", .{name});
+        debug.print("{s} is a character device.\n", .{name});
         return true;
     } else {
         return false;
@@ -181,17 +181,17 @@ fn device_supports_video(self: Camera) bool {
         var cap: c.struct_v4l2_capability = std.mem.zeroes(c.struct_v4l2_capability);
 
         if (-1 == xioctl(fd, c.VIDIOC_QUERYCAP, &cap)) {
-            std.debug.print("Failed to query device capabilities.\n", .{});
+            debug.print("Failed to query device capabilities.\n", .{});
             return false;
         }
 
         if (0 == (cap.capabilities & c.V4L2_CAP_VIDEO_CAPTURE)) {
-            std.debug.print("Device does not support video capture.\n", .{});
+            debug.print("Device does not support video capture.\n", .{});
             return false;
         }
 
         if (0 == (cap.capabilities & c.V4L2_CAP_STREAMING)) {
-            std.debug.print("Device does not support streaming I/O (our default method for handling cameras... at least for now.\n", .{});
+            debug.print("Device does not support streaming I/O (our default method for handling cameras... at least for now.\n", .{});
             return false;
         }
     } else {
@@ -239,15 +239,15 @@ fn configure_device(self: *Camera) !void {
                 (c.ENODEV == c_errno) or
                 (c.EPERM == c_errno))
             {
-                std.debug.print("Cropping not supported on this device.\n", .{});
+                debug.print("Cropping not supported on this device.\n", .{});
             } else {
-                std.debug.print("Failed to set crop rectangle.\n", .{});
+                debug.print("Failed to set crop rectangle.\n", .{});
             }
         } else {
-            std.debug.print("Crop rectangle set successfully.\n", .{});
+            debug.print("Crop rectangle set successfully.\n", .{});
         }
     } else {
-        std.debug.print("Failed to get crop capabilities.\n", .{});
+        debug.print("Failed to get crop capabilities.\n", .{});
     }
 
     fmt.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -256,7 +256,7 @@ fn configure_device(self: *Camera) !void {
     fmt.fmt.pix.pixelformat = c.V4L2_PIX_FMT_YUYV;
 
     if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_S_FMT, &fmt)) {
-        std.debug.print("Failed to set pixel format.\n", .{});
+        debug.print("Failed to set pixel format.\n", .{});
         return error.SetFormatFailed;
     }
 
@@ -277,11 +277,11 @@ fn configure_device(self: *Camera) !void {
             debug.print("CAMERA SET CORRECTLY\n", .{});
         }
     } else {
-        std.debug.print("Assuming pixel format set successfully.\n", .{});
-        std.debug.print("Configured format:\n", .{});
-        std.debug.print("\tWidth: {d}\n", .{fmt.fmt.pix.width});
-        std.debug.print("\tHeight: {d}\n", .{fmt.fmt.pix.height});
-        std.debug.print("\tPixel Format: {x}\n", .{fmt.fmt.pix.pixelformat});
+        debug.print("Assuming pixel format set successfully.\n", .{});
+        debug.print("Configured format:\n", .{});
+        debug.print("\tWidth: {d}\n", .{fmt.fmt.pix.width});
+        debug.print("\tHeight: {d}\n", .{fmt.fmt.pix.height});
+        debug.print("\tPixel Format: {x}\n", .{fmt.fmt.pix.pixelformat});
     }
 
 
@@ -300,12 +300,12 @@ fn initialize_mmap(self: *Camera) !void {
     req.memory = c.V4L2_MEMORY_MMAP;
 
     if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_REQBUFS, &req)) {
-        std.debug.print("Failed to request buffer allocation via mmap.\n", .{});
+        debug.print("Failed to request buffer allocation via mmap.\n", .{});
         return error.RequestBuffersFailed;
     }
 
     if (2 > req.count) {
-        std.debug.print("Insufficient buffer memory on device.\n", .{});
+        debug.print("Insufficient buffer memory on device.\n", .{});
         return error.InsufficientBufferMemory;
     }
 
@@ -320,7 +320,7 @@ fn initialize_mmap(self: *Camera) !void {
         query_buf.index = @intCast(i);
 
         if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_QUERYBUF, &query_buf)) {
-            std.debug.print("Failed to query buffer info.\n", .{});
+            debug.print("Failed to query buffer info.\n", .{});
             return error.QueryBufferFailed;
         }
 
@@ -335,7 +335,7 @@ fn initialize_mmap(self: *Camera) !void {
         );
 
         if (std.c.MAP_FAILED == start) {
-            std.debug.print("Failed to map buffer to user space.\n", .{});
+            debug.print("Failed to map buffer to user space.\n", .{});
             //for (0..i) |j| {
             //    _ = std.c.munmap(self.buffers[j].start, self.buffers[j].length);
             //}
@@ -364,14 +364,14 @@ fn start_capturing(self: Camera) !void {
         buf.index = @intCast(index);
 
         if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_QBUF, &buf)) {
-            std.debug.print("Failed to queue buffer {d}.\n", .{index});
+            debug.print("Failed to queue buffer {d}.\n", .{index});
             return error.QueueBufferFailed;
         }
     }
 
     var vtype: c.enum_v4l2_buf_type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
     if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_STREAMON, &vtype)) {
-        std.debug.print("Failed to start video streaming.\n", .{});
+        debug.print("Failed to start video streaming.\n", .{});
         return error.StartStreamingFailed;
     }
 }
@@ -389,21 +389,21 @@ pub fn capture_single_frame(self: Camera) !?u8 {
         if (c.EAGAIN == std.c._errno().*) {
             return null;
         }
-        std.debug.print("Failed to dequeue buffer.\n", .{});
+        debug.print("Failed to dequeue buffer.\n", .{});
         return error.DequeueBufferFailed;
     }
-    std.debug.print("Captured frame in buffer index {d}.\n", .{buf.index});
+    debug.print("Captured frame in buffer index {d}.\n", .{buf.index});
 
-    std.debug.print("Updating camera data for recent capture\n:", .{});
-    std.debug.print("\tUpdating buffer {d}'s bytes used (val = {d})...\n", .{ buf.index, buf.bytesused });
+    debug.print("Updating camera data for recent capture\n:", .{});
+    debug.print("\tUpdating buffer {d}'s bytes used (val = {d})...\n", .{ buf.index, buf.bytesused });
     self.buffers[buf.index].bytes_used = buf.bytesused;
-    //std.debug.print("\tUpdating buffer {d}'s timestamp...\n", .{buf.index});
+    //debug.print("\tUpdating buffer {d}'s timestamp...\n", .{buf.index});
     self.buffers[buf.index].time_stamp = buf.timestamp;
-    std.debug.print("Just aquired timestamp: {d}.{d}\n", .{buf.timestamp.tv_sec, buf.timestamp.tv_usec});
-    std.debug.print("\tUpdating buffer {d}'s sequence...\n", .{buf.index});
+    debug.print("Just aquired timestamp: {d}.{d}\n", .{buf.timestamp.tv_sec, buf.timestamp.tv_usec});
+    debug.print("\tUpdating buffer {d}'s sequence...\n", .{buf.index});
     self.buffers[buf.index].sequence = buf.sequence;
 
-    std.debug.print("Sending Frame data for encoding...\n", .{});
+    debug.print("Sending Frame data for encoding...\n", .{});
     return @intCast(buf.index);
 }
 
@@ -414,7 +414,7 @@ fn release_buffer(self: Camera, buffer_index: u32) !void {
     buf.index = buffer_index;
 
     if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_QBUF, &buf)) {
-        std.debug.print("Failed to re-queue buffer.\n", .{});
+        debug.print("Failed to re-queue buffer.\n", .{});
         return error.RequeueBufferFailed;
     }
 }

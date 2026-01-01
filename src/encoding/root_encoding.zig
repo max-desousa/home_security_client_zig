@@ -87,7 +87,7 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData, allocator : std.mem.All
 
         create_video(sync_data, enc_ctx, file_name);
     }
-    std.debug.print("Encoding thread was ended due to encountering sync_data error: {any}\n", .{sync_data.sync_error.?});
+    debug.print("Encoding thread was ended due to encountering sync_data error: {any}\n", .{sync_data.sync_error.?});
 
     set_error(sync_data, sync.ThreadingErrors.PrototypeEncoderNaturallyDone);
 }

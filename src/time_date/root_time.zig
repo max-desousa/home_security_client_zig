@@ -208,8 +208,6 @@ pub fn get_windowed_time_for_filename_string(allocator: std.mem.Allocator, durat
 
     const raw_epoch_seconds_start = try get_current_epoch_sec(config.get_utc_offset_seconds());
     const raw_epoch_seconds_end = raw_epoch_seconds_start + duration;
-    std.debug.print("raw_epoch_seconds_start : {d}\n", .{raw_epoch_seconds_start});
-    std.debug.print("raw_epoch_seconds_end   : {d}\n", .{raw_epoch_seconds_end});
 
     const start_epoch_seconds : std.time.epoch.EpochSeconds = .{ .secs = raw_epoch_seconds_start };
     const end_epoch_seconds : std.time.epoch.EpochSeconds = .{ .secs = raw_epoch_seconds_end };
@@ -228,8 +226,6 @@ pub fn get_windowed_time_for_filename_string(allocator: std.mem.Allocator, durat
     const end_day_seconds = end_epoch_seconds.getDaySeconds();
     const end_hour = end_day_seconds.getHoursIntoDay();
     const end_minute = end_day_seconds.getMinutesIntoHour();
-
-    std.debug.print("End minute before adjustment: {d}\n", .{end_minute});
 
     var adjusted_minutes = switch (duration) {
         0...60 => end_minute,
@@ -340,7 +336,6 @@ pub fn is_time_in_current_window(file_name: []const u8) !bool {
     const year_and_day = epoch_day.calculateYearDay();
     const current_year = year_and_day.year;
     if (target_year != current_year) {
-        std.debug.print("Year mismatch: target_year={d}, current_year={d}\n", .{target_year, current_year});
         return false;
     }
 
@@ -348,14 +343,12 @@ pub fn is_time_in_current_window(file_name: []const u8) !bool {
     const month_and_day = year_and_day.calculateMonthDay();
     const current_month = month_and_day.month.numeric();
     if (target_month != current_month) {
-        std.debug.print("Month mismatch: target_month={d}, current_month={d}\n", .{target_month, current_month});
         return false;
     }
 
     // Check that day is valid
     const current_day = month_and_day.day_index + 1;
     if (target_day != current_day) {
-        std.debug.print("Day mismatch: target_day={d}, current_day={d}\n", .{target_day, current_day});
         return false;
     }
 
