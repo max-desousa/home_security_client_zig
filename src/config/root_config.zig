@@ -82,7 +82,7 @@ pub fn establish_config(io : std.Io) !void {
     }
     else |err| {
         if (std.Io.File.OpenError.FileNotFound == err) {
-            try make_default_config();
+            try make_default_config(io);
         }
         else return err;
     }
@@ -152,15 +152,16 @@ fn parse_file(file : std.Io.File, io : std.Io) !void {
 
 // New IO isn't available on writers yet - this function WILL break
 ///Function to make default config file when it's not present at runtime
-fn make_default_config() !void {
-    const new_file = try std.fs.Dir.createFile(
-        std.fs.cwd(),
-        //io,
+fn make_default_config(io : std.Io) !void {
+    const new_file = try std.Io.Dir.createFile(
+        std.Io.Dir.cwd(),
+        io,
         CONFIG_FILE_NAME,
         .{});
-    defer new_file.close();
+    defer new_file.close(io);
     var writer_buffer : [512]u8 = undefined;
-    var writer = std.fs.File.Writer.init(new_file, &writer_buffer);
+    //var writer = std.fs.File.Writer.init(new_file, &writer_buffer);
+    var writer = std.Io.File.writer(new_file, io, &writer_buffer);
 
     VALUE_VIDEO_DURATION = 600;
     try writer.interface.print("{s} = {d}\n", .{FIELD_DURATION, VALUE_VIDEO_DURATION});

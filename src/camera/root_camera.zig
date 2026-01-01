@@ -145,9 +145,17 @@ pub fn deinit(self: *Camera) void {
 
 fn check_if_device_exists(self: Camera) bool {
     if (self.device_name) |name| {
-        var stat: std.c.Stat = undefined;
+        var statx: std.os.linux.Statx = undefined;
 
-        if (-1 == std.c.stat(name, &stat)) {
+        const statx_check = std.c.statx(
+            std.c.AT.FDCWD,
+            name,
+            0,
+            .BASIC_STATS,
+            &statx,
+        );
+
+        if (-1 == statx_check) {
             std.debug.print("Failed to get device status.\n", .{});
             return false;
             //return error.FStatFailed;
@@ -155,7 +163,7 @@ fn check_if_device_exists(self: Camera) bool {
 
         std.debug.print("Device status obtained.\n", .{});
 
-        if (!std.c.S.ISCHR(stat.mode)) {
+        if (!std.c.S.ISCHR(statx.mode)) {
             std.debug.print("{s} is not a character device.\n", .{name});
             return false;
             //return error.NotCharacterDevice;

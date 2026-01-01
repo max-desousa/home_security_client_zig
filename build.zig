@@ -91,11 +91,11 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    exe.linkLibC();
-    exe.linkSystemLibrary("libavformat");
-    exe.linkSystemLibrary("libavcodec");
-    exe.linkSystemLibrary("libavutil");
-    exe.linkSystemLibrary("libswscale");
+    exe.root_module.link_libc = true;
+    exe.root_module.linkSystemLibrary("libavformat", .{});
+    exe.root_module.linkSystemLibrary("libavcodec", .{});
+    exe.root_module.linkSystemLibrary("libavutil", .{});
+    exe.root_module.linkSystemLibrary("libswscale", .{});
 
     const options = b.addOptions();
     const number_of_cores = b.option(usize, "number_of_cores", "Number of CPU cores to use for building") orelse std.Thread.getCpuCount() catch 1;
