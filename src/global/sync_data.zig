@@ -28,6 +28,9 @@ pub const ThreadingErrors = error{
     SigIntRequested,
     EncoderCouldNotGenerateFilename,
     EncoderCouldNotGetCurrentTime,
+    ErrorGettingCameraParams,
+    DeviceDoesNotSupportFrameRateSetting,
+    CameraFrameRateDoesNotMatchRequested,
 };
 
 pub const SynchronousData = struct {

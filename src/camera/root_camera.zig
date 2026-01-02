@@ -284,10 +284,78 @@ fn configure_device(self: *Camera) !void {
         debug.print("\tPixel Format: {x}\n", .{fmt.fmt.pix.pixelformat});
     }
 
+    try self.attempt_to_set_frame_rate();
 
     try self.initialize_mmap();
 }
 
+fn attempt_to_set_frame_rate(self: *Camera) !void {
+    const crash_on_diff = config.get_crash_on_vid_diff();
+
+    var stream_parm : c.struct_v4l2_streamparm = std.mem.zeroes(c.struct_v4l2_streamparm);
+    stream_parm.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_G_PARM, &stream_parm)) {
+        debug.print("Failed to get current frame rate settings.\n", .{});
+        return error.ErrorGettingCameraParams;
+    }
+
+    const dev_supports_frame_rate : bool = (stream_parm.parm.capture.capability & c.V4L2_CAP_TIMEPERFRAME) != 0;
+
+    if ((!dev_supports_frame_rate) and 
+        (crash_on_diff)) {
+        debug.print("Device does not support frame rate adjustment and user as asked to crash on difference.\n", .{});
+        return error.DeviceDoesNotSupportFrameRateSetting;
+    }
+
+    if (!dev_supports_frame_rate) {
+        debug.print("Device does not support frame rate adjustment - skipping frame rate set.\n", .{});
+        debug.print("Warning: Frame rate may not be as expected and encoder WILL use your requested frame rate regardless of actual camera frame rate.\n", .{});
+        return;
+    }
+
+    stream_parm = std.mem.zeroes(c.struct_v4l2_streamparm);
+    stream_parm.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+
+    if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_G_PARM, &stream_parm)) {
+        debug.print("Failed to get parameters to initialize attempt to set frame rate.\n", .{});
+        if (crash_on_diff) {
+            return error.ErrorGettingCameraParams;
+        }
+        return;
+    }
+
+    stream_parm.parm.capture.timeperframe.numerator = 1;
+    stream_parm.parm.capture.timeperframe.denominator = config.get_camera_frame_rate();
+
+    if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_S_PARM, &stream_parm)) {
+        debug.print("Failed to set frame rate.\n", .{});
+        if (crash_on_diff) {
+            return error.ErrorSettingFrameRate;
+        }
+        return;
+    }
+    
+    stream_parm = std.mem.zeroes(c.struct_v4l2_streamparm);
+    stream_parm.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_G_PARM, &stream_parm)) {
+        debug.print("Failed to get frame rate after setting it.\n", .{});
+        if (crash_on_diff) {
+            return error.ErrorGettingCameraParams;
+        }
+    }
+    debug.print("Requested frame rate: {d} fps\n", .{config.get_camera_frame_rate()});
+    const actual_frame_rate = @divFloor(stream_parm.parm.capture.timeperframe.denominator, stream_parm.parm.capture.timeperframe.numerator);
+    debug.print("Actual frame rate: {d} fps\n", .{actual_frame_rate});
+    if ((actual_frame_rate != config.get_camera_frame_rate()) and
+        (crash_on_diff))
+    {
+        debug.print("Frame rate after setting does not match requested frame rate.\n", .{});
+        return error.CameraFrameRateDoesNotMatchRequested;
+    }
+}
+
+//##############################################################################
+//##############################################################################
 fn initialize_mmap(self: *Camera) !void {
     if (null == self.file_descriptor) {
         return error.BadStructInstance;
