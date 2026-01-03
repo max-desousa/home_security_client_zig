@@ -21,7 +21,7 @@ const SetupState = enum {
 file_descriptor: ?c_int,
 device_name: ?[*:0]const u8,
 allocator: std.mem.Allocator,
-buffers: []sync.CameraBuffer = undefined,
+buffers: []sync.CameraBuffer = &.{},
 n_buffers: u8 = undefined,
 private_head: usize = 0,
 private_tail: usize = 0,
@@ -43,6 +43,7 @@ pub fn infinite_capture(self: *Camera, sync_data: *sync.SynchronousData) void {
         }
         return;
     };
+
     while (true) {
         if (null != sync_data.sync_error) {
             debug.print("External error - closing camera thread...\n", .{});
