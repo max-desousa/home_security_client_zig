@@ -94,7 +94,7 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData, allocator : std.mem.All
 
 fn set_error(io : std.Io, data: *sync.SynchronousData, err: sync.ThreadingErrors) void {
     data.mutex.lock(io) catch |inner_err| {
-        std.debug.print("Problem locking mutex in encoding thread: {any}\n", .{inner_err});
+        debug.print("Problem locking mutex in encoding thread: {any}\n", .{inner_err});
     };
     defer data.mutex.unlock(io);
     data.sync_error = err;

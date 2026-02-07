@@ -1,5 +1,6 @@
 const std = @import("std");
 const c = @import("c_imports").c;
+const debug = @import("debug");
 
 //Buffer used by cameras.
 pub const CameraBuffer = struct {
@@ -69,7 +70,7 @@ pub const SynchronousData = struct {
 
     pub fn get_first(self: *Self, io : std.Io) ?u8 {
         self.mutex.lock(io) catch |inner_err| {
-            std.debug.print("Error locking mutex: {any}\n", .{inner_err});
+            debug.print("Error locking mutex: {any}\n", .{inner_err});
         };
         defer self.mutex.unlock(io);
 

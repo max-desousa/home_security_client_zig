@@ -4,6 +4,12 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const mod_debug = b.createModule(.{
+        .root_source_file = b.path("src/debug/root_debug.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const mod_config = b.createModule(.{
         .root_source_file = b.path("src/config/root_config.zig"),
         .target = target,
@@ -31,13 +37,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "c_imports", .module = mod_c_imports },
+            .{ .name = "debug", .module = mod_debug },
         },
-    });
-
-    const mod_debug = b.createModule(.{
-        .root_source_file = b.path("src/debug/root_debug.zig"),
-        .target = target,
-        .optimize = optimize,
     });
 
     const mod_encoding = b.createModule(.{
