@@ -25,7 +25,7 @@ pub fn perfect_core_layout() !void {
         }
     }
 
-    var threaded : std.Io.Threaded = .init(allocator, .{});
+    var threaded : std.Io.Threaded = .init(allocator, .{ .environ = .empty });
     defer threaded.deinit();
 
     const io = threaded.io();
@@ -35,10 +35,10 @@ pub fn perfect_core_layout() !void {
     defer camera_obj.deinit();
 
     var group : std.Io.Group = .init;
-    defer group.wait(io);
+    defer group.await(io) catch {};
 
     var sync_data: sync.SynchronousData = .{};
 
-    try group.concurrent(io, encoding.encoding_thread, .{&sync_data, allocator});
-    try group.concurrent(io, camera.run, .{&camera_obj, &sync_data});
+    try group.concurrent(io, encoding.encoding_thread, .{&sync_data, allocator, io});
+    try group.concurrent(io, camera.run, .{&camera_obj, io, &sync_data});
 }

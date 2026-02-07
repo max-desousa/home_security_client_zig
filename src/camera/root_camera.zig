@@ -27,18 +27,21 @@ private_head: usize = 0,
 private_tail: usize = 0,
 
 
-pub fn run(self : *Camera, sync_data: *sync.SynchronousData) void {
+pub fn run(self : *Camera, io : std.Io, sync_data: *sync.SynchronousData) void {
     sync_data.buffers = self.buffers;
-    self.infinite_capture(sync_data);
+    self.infinite_capture(io, sync_data);
 }
 
-pub fn infinite_capture(self: *Camera, sync_data: *sync.SynchronousData) void {
+pub fn infinite_capture(self: *Camera, io : std.Io, sync_data: *sync.SynchronousData) void {
     self.start_capturing() catch |err| {
         debug.print("There was an error starting the capturing of frames with the camera...\n", .{});
         debug.print("\tError code: {any}\n", .{err});
         {
-            sync_data.mutex.lock();
-            defer sync_data.mutex.unlock();
+            sync_data.mutex.lock(io) catch |inner_err| {
+                std.debug.print("Failed to lock mutex due to error: {any}\n", .{inner_err});
+                return;
+            };
+            defer sync_data.mutex.unlock(io);
             sync_data.sync_error = sync.ThreadingErrors.CameraCouldNotStart;
         }
         return;
@@ -52,8 +55,11 @@ pub fn infinite_capture(self: *Camera, sync_data: *sync.SynchronousData) void {
         }
 
         if (0 != sync_data.free_flags.count()) {
-            sync_data.mutex.lock();
-            defer sync_data.mutex.unlock();
+            sync_data.mutex.lock(io) catch |inner_err| {
+                std.debug.print("Failed to lock mutex due to error: {any}\n", .{inner_err});
+                return;
+            };
+            defer sync_data.mutex.unlock(io);
             while (sync_data.free_flags.findFirstSet()) |num| {
                 sync_data.free_flags.unset(num);
                 self.release_buffer(@intCast(num)) catch |err| {
@@ -68,8 +74,11 @@ pub fn infinite_capture(self: *Camera, sync_data: *sync.SynchronousData) void {
             debug.print("Error capturing a frame from the camera...\n", .{});
             debug.print("\tError received was: {any}\n", .{err});
             {
-                sync_data.mutex.lock();
-                defer sync_data.mutex.unlock();
+                sync_data.mutex.lock(io) catch |inner_err| {
+                    std.debug.print("Failed to lock mutex due to error: {any}\n", .{inner_err});
+                    return;
+                };
+                defer sync_data.mutex.unlock(io);
                 sync_data.sync_error = sync.ThreadingErrors.CameraCouldNotCaptureFrame;
             }
             return;
@@ -77,10 +86,13 @@ pub fn infinite_capture(self: *Camera, sync_data: *sync.SynchronousData) void {
 
         if (null == frame_captured) continue;
 
-        const shared = self.publish_frame_to_sync_data(frame_captured.?, sync_data);
+        const shared = self.publish_frame_to_sync_data(io, frame_captured.?, sync_data);
         if (false == shared) {
-            sync_data.mutex.lock();
-            defer sync_data.mutex.unlock();
+            sync_data.mutex.lock(io) catch |inner_err| {
+                std.debug.print("Failed to lock mutex due to error: {any}\n", .{inner_err});
+                return;
+            };
+            defer sync_data.mutex.unlock(io);
             sync_data.sync_error = sync.ThreadingErrors.CameraRunOutOfBuffers;
             debug.print("Camera ran out of buffers... aborting\n", .{});
             return;
@@ -88,8 +100,8 @@ pub fn infinite_capture(self: *Camera, sync_data: *sync.SynchronousData) void {
     }
 }
 
-fn publish_frame_to_sync_data(self: *Camera, buff_num: u8, sync_data: *sync.SynchronousData) bool {
-    sync_data.push(@intCast(buff_num)) catch return false;
+fn publish_frame_to_sync_data(self: *Camera, io : std.Io, buff_num: u8, sync_data: *sync.SynchronousData) bool {
+    sync_data.push(io, @intCast(buff_num)) catch return false;
     self.private_head = sync_data.head;
     return true;
 }
@@ -397,7 +409,7 @@ fn initialize_mmap(self: *Camera) !void {
         const start = std.c.mmap(
             null,
             length,
-            std.c.PROT.READ | std.c.PROT.WRITE,
+            .{ .READ = true, .WRITE = true},
             .{ .TYPE = .SHARED },
             self.file_descriptor.?,
             query_buf.m.offset,

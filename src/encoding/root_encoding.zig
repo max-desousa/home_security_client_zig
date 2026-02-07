@@ -49,78 +49,81 @@ fn set_encoder_context(encoder: *c.struct_AVCodec) ?*c.struct_AVCodecContext {
 // Description: This is the main entry point for running the endless encoding
 //              loop for the captured frames.
 //##############################################################################
-pub fn encoding_thread(sync_data: *sync.SynchronousData, allocator : std.mem.Allocator) void {
+pub fn encoding_thread(sync_data: *sync.SynchronousData, allocator : std.mem.Allocator, io: std.Io) void {
     debug.print("\tLooking for H.264 encoder...\n", .{});
 
     // Step 1: Find the H.264 encoder
     const encoder : *c.struct_AVCodec = c.avcodec_find_encoder(c.AV_CODEC_ID_H264) orelse {
-        set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotBeFound);
+        set_error(io, sync_data, sync.ThreadingErrors.EncoderCouldNotBeFound);
         return;
     };
 
     // Step 2: Set up the encoder context
     var enc_ctx : *c.struct_AVCodecContext = set_encoder_context(encoder) orelse {
-        set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotSetContext);
+        set_error(io, sync_data, sync.ThreadingErrors.EncoderCouldNotSetContext);
         return;
     };
     defer c.avcodec_free_context(@ptrCast(&enc_ctx));
 
     // Step 3: Open the encoder (verify paramters don't cause issues)
     if (c.avcodec_open2(@ptrCast(enc_ctx), encoder, null) < 0) {
-        set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotOpenCodec);
+        set_error(io, sync_data, sync.ThreadingErrors.EncoderCouldNotOpenCodec);
         return;
     }
 
     while (null == sync_data.sync_error) {
         const duration = config.get_config_video_duration(); // 10 minutes
-        const file_name_window = time.get_windowed_time_for_filename_string(allocator, duration) catch {
-            set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotGenerateFilename);
+        const file_name_window = time.get_windowed_time_for_filename_string(allocator, io, duration) catch {
+            set_error(io, sync_data, sync.ThreadingErrors.EncoderCouldNotGenerateFilename);
             return;
         };
         defer allocator.free(file_name_window);
 
         var file_name_buffer : [256]u8 = undefined;
         const file_name = std.fmt.bufPrintSentinel(&file_name_buffer, "{s}-{s}.mp4", .{config.get_camera_name(), file_name_window}, 0) catch {
-            set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotGenerateFilename);
+            set_error(io, sync_data, sync.ThreadingErrors.EncoderCouldNotGenerateFilename);
             return;
         };
 
-        create_video(sync_data, enc_ctx, file_name);
+        create_video(io, sync_data, enc_ctx, file_name);
     }
     debug.print("Encoding thread was ended due to encountering sync_data error: {any}\n", .{sync_data.sync_error.?});
 
-    set_error(sync_data, sync.ThreadingErrors.PrototypeEncoderNaturallyDone);
+    set_error(io, sync_data, sync.ThreadingErrors.PrototypeEncoderNaturallyDone);
 }
 
-fn set_error(data: *sync.SynchronousData, err: sync.ThreadingErrors) void {
-    data.mutex.lock();
-    defer data.mutex.unlock();
+fn set_error(io : std.Io, data: *sync.SynchronousData, err: sync.ThreadingErrors) void {
+    data.mutex.lock(io) catch |inner_err| {
+        std.debug.print("Problem locking mutex in encoding thread: {any}\n", .{inner_err});
+    };
+    defer data.mutex.unlock(io);
     data.sync_error = err;
 }
 
 fn create_video(
+    io : std.Io,
     sync_data : *sync.SynchronousData,
     encoder_ctx : *c.struct_AVCodecContext,
     file_name : [:0]const u8,
 ) void {
     var nullable_output_fmt_ctx : ?*c.struct_AVFormatContext = null;
     if (c.avformat_alloc_output_context2(@ptrCast(&nullable_output_fmt_ctx), null, null, file_name) < 0) {
-        set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotSetOutputContext);
+        set_error(io, sync_data, sync.ThreadingErrors.EncoderCouldNotSetOutputContext);
         return;
     }
     const output_fmt_ctx = nullable_output_fmt_ctx orelse {
-        set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotSetOutputContext);
+        set_error(io, sync_data, sync.ThreadingErrors.EncoderCouldNotSetOutputContext);
         return;
     };
     defer c.avformat_free_context(@ptrCast(output_fmt_ctx));
 
     const stream : *c.struct_AVStream = c.avformat_new_stream(@ptrCast(output_fmt_ctx), null) orelse {
-        set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotSetOutputContext);
+        set_error(io, sync_data, sync.ThreadingErrors.EncoderCouldNotSetOutputContext);
         return;
     };
 
     if (c.avcodec_parameters_from_context(@ptrCast(stream.codecpar), @ptrCast(encoder_ctx)) < 0) {
-        set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotSetOutputContext);
+        set_error(io, sync_data, sync.ThreadingErrors.EncoderCouldNotSetOutputContext);
         return;
     }
 
@@ -152,25 +155,25 @@ fn create_video(
            (null == sync_data.sync_error)) {
 
         defer {
-            still_in_relevant_time_window = time.is_time_in_current_window(file_name[0..(file_name.len - 4)]) catch |err| blk: {
+            still_in_relevant_time_window = time.is_time_in_current_window(io, file_name[0..(file_name.len - 4)]) catch |err| blk: {
                 debug.print("Error checking time window: {any}\n", .{err});
-                set_error(sync_data, sync.ThreadingErrors.EncoderCouldNotGetCurrentTime);
+                set_error(io, sync_data, sync.ThreadingErrors.EncoderCouldNotGetCurrentTime);
                 break :blk false;
             };
         }
 
-        const buf_idx = sync_data.get_first() orelse continue;
+        const buf_idx = sync_data.get_first(io) orelse continue;
         const buffer_index = buf_idx;
 
         // ----- Raw YUYV frame -----
-        var src_frame : *c.struct_AVFrame = c.av_frame_alloc() orelse { sync_data.pop() catch {}; continue; };
+        var src_frame : *c.struct_AVFrame = c.av_frame_alloc() orelse { sync_data.pop(io) catch {}; continue; };
         defer c.av_frame_free(@ptrCast(&src_frame));
 
         src_frame.format = c.AV_PIX_FMT_YUYV422;
         src_frame.width  = config.get_camera_width();
         src_frame.height = config.get_camera_height();
         if (c.av_frame_get_buffer(@ptrCast(src_frame), 0) < 0) {
-            sync_data.pop() catch {};
+            sync_data.pop(io) catch {};
             continue;
         }
 
@@ -180,14 +183,14 @@ fn create_video(
         src_frame.linesize[0] = config.get_camera_width() * 2;
 
         // ----- Convert to YUV420P -----
-        var dst_frame : *c.struct_AVFrame = c.av_frame_alloc() orelse { sync_data.pop() catch {}; continue; };
+        var dst_frame : *c.struct_AVFrame = c.av_frame_alloc() orelse { sync_data.pop(io) catch {}; continue; };
         defer c.av_frame_free(@ptrCast(&dst_frame));
 
         dst_frame.format = c.AV_PIX_FMT_YUV420P;
         dst_frame.width  = config.get_camera_width();
         dst_frame.height = config.get_camera_height();
         if (c.av_frame_get_buffer(@ptrCast(dst_frame), 0) < 0) {
-            sync_data.pop() catch {};
+            sync_data.pop(io) catch {};
             continue;
         }
 
@@ -240,7 +243,7 @@ fn create_video(
             c.av_packet_unref(&pkt);
         }
 
-        sync_data.pop() catch {};
+        sync_data.pop(io) catch {};
     }
 
     // ----- Finalise file -----

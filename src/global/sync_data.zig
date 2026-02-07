@@ -36,7 +36,7 @@ pub const ThreadingErrors = error{
 pub const SynchronousData = struct {
     const Self = @This();
     const BUFFER_SIZE = 32;
-    mutex: std.Thread.Mutex = .{},
+    mutex: std.Io.Mutex = .init,
     buffers: []CameraBuffer = undefined,
     buffers_ready_to_encode: [BUFFER_SIZE]u8 = std.mem.zeroes([BUFFER_SIZE]u8),
     //free_flags: std.bit_set = std.bit_set.IntegerBitSet(BUFFER_SIZE).initEmpty(),
@@ -45,9 +45,9 @@ pub const SynchronousData = struct {
     head: usize = 0,
     tail: usize = 0,
 
-    pub fn pop(self: *Self) !void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+    pub fn pop(self: *Self, io : std.Io) !void {
+        try self.mutex.lock(io);
+        defer self.mutex.unlock(io);
         if (self.head == self.tail) {
             return error.Empty;
         }
@@ -56,9 +56,9 @@ pub const SynchronousData = struct {
         self.free_flags.set(value);
     }
 
-    pub fn push(self: *Self, buf_num: u8) !void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+    pub fn push(self: *Self, io : std.Io, buf_num: u8) !void {
+        try self.mutex.lock(io);
+        defer self.mutex.unlock(io);
         const next_head = ((self.head + 1) % BUFFER_SIZE);
         if (next_head == self.head) {
             return error.Full;
@@ -67,9 +67,11 @@ pub const SynchronousData = struct {
         self.buffers_ready_to_encode[self.head] = buf_num;
     }
 
-    pub fn get_first(self: *Self) ?u8 {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+    pub fn get_first(self: *Self, io : std.Io) ?u8 {
+        self.mutex.lock(io) catch |inner_err| {
+            std.debug.print("Error locking mutex: {any}\n", .{inner_err});
+        };
+        defer self.mutex.unlock(io);
 
         if (self.head == self.tail) {
             return null;

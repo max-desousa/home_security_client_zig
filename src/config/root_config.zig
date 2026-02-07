@@ -192,8 +192,8 @@ fn make_default_config(io : std.Io) !void {
 
     var prng = std.Random.Xoshiro256.init(blk: {
         var seed: u64 = undefined;
-        try std.posix.getrandom(std.mem.asBytes(&seed));
-        break :blk seed;
+        break :blk @intCast(std.c.getrandom(std.mem.asBytes(&seed), 4, 0));
+        //break :blk seed;
     }); 
     const rand = prng.random();
     const rand_number = rand.int(u32);

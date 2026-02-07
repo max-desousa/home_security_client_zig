@@ -13,9 +13,9 @@ const config = @import("config");
 //              HHMMSS for the current day.
 //
 //##############################################################################
-fn get_current_time_as_string(allocator : std.mem.Allocator) ![]const u8 {
-    const epoch = try std.posix.clock_gettime(.REALTIME);
-    const offset : u64 = @intCast(epoch.sec - 18_000);
+fn get_current_time_as_string(allocator : std.mem.Allocator, io : std.Io) ![]const u8 {
+    const raw_epoch_seconds = std.Io.Clock.now(.real, io).toSeconds();
+    const offset : u64 = @intCast(raw_epoch_seconds - 18_000);
 
     const epoch_seconds : std.time.epoch.EpochSeconds = .{.secs = offset};
     const day_seconds = epoch_seconds.getDaySeconds();
@@ -42,9 +42,10 @@ fn get_current_time_as_string(allocator : std.mem.Allocator) ![]const u8 {
 //              string - which MUST be freed - in the format: YYYYMMDDHHSS
 //
 //##############################################################################
-fn get_time_for_filename_string(allocator : std.mem.Allocator, offset : u64) ![]const u8 {
-    const epoch = try std.posix.clock_gettime(.REALTIME);
-    const epoch_accounting_for_tz : u64 = @intCast(epoch.sec - 18_000);
+fn get_time_for_filename_string(allocator : std.mem.Allocator, io: std.Io, offset : u64) ![]const u8 {
+    //const epoch = try std.posix.clock_gettime(.REALTIME);
+    const raw_epoch_seconds = std.Io.Clock.now(.real, io).toSeconds();
+    const epoch_accounting_for_tz : u64 = @intCast(raw_epoch_seconds - 18_000);
     const time_to_output = epoch_accounting_for_tz + offset;
 
     const epoch_seconds : std.time.epoch.EpochSeconds = .{.secs = time_to_output};
@@ -117,9 +118,9 @@ fn within_time_frame_of_filename(file_name : []const u8, allocator : std.mem.All
 //              uses the posix library.
 //
 //##############################################################################
-pub fn get_current_epoch_sec(offset : i64) !u64 {
-    const raw_epoch = try std.posix.clock_gettime(.REALTIME);
-    const epoch : u64 = @intCast(raw_epoch.sec);
+pub fn get_current_epoch_sec(io : std.Io, offset : i64) !u64 {
+    const raw_epoch_seconds = std.Io.Clock.now(.real, io).toSeconds();
+    const epoch : u64 = @intCast(raw_epoch_seconds);
 
     const positive_offset : bool = (offset > 0);
 
@@ -201,12 +202,12 @@ const DAY_IN_SECONDS : u64 = 86_400;
 //              webcam is for.
 //
 //##############################################################################
-pub fn get_windowed_time_for_filename_string(allocator: std.mem.Allocator, duration : u64) ![:0]u8 {
+pub fn get_windowed_time_for_filename_string(allocator: std.mem.Allocator, io : std.Io, duration : u64) ![:0]u8 {
     if (DAY_IN_SECONDS < duration) {
         return error.InvalidTimeWindow;
     }
 
-    const raw_epoch_seconds_start = try get_current_epoch_sec(config.get_utc_offset_seconds());
+    const raw_epoch_seconds_start = try get_current_epoch_sec(io, config.get_utc_offset_seconds());
     const raw_epoch_seconds_end = raw_epoch_seconds_start + duration;
 
     const start_epoch_seconds : std.time.epoch.EpochSeconds = .{ .secs = raw_epoch_seconds_start };
@@ -315,9 +316,9 @@ pub fn get_windowed_time_for_filename_string(allocator: std.mem.Allocator, durat
 //              filename.
 //
 //##############################################################################
-pub fn is_time_in_current_window(file_name: []const u8) !bool {
+pub fn is_time_in_current_window(io : std.Io, file_name: []const u8) !bool {
     // Create epoch object for current time (can err due to posix call)
-    const raw_current_epoch_sec = try get_current_epoch_sec(config.get_utc_offset_seconds());
+    const raw_current_epoch_sec = try get_current_epoch_sec(io, config.get_utc_offset_seconds());
     const epoch_seconds : std.time.epoch.EpochSeconds = .{ .secs = raw_current_epoch_sec };
 
     const str_len = file_name.len;
