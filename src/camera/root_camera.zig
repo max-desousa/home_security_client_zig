@@ -38,7 +38,7 @@ pub fn infinite_capture(self: *Camera, io : std.Io, sync_data: *sync.Synchronous
         debug.print("\tError code: {any}\n", .{err});
         {
             sync_data.mutex.lock(io) catch |inner_err| {
-                std.debug.print("Failed to lock mutex due to error: {any}\n", .{inner_err});
+                debug.print("Failed to lock mutex due to error: {any}\n", .{inner_err});
                 return;
             };
             defer sync_data.mutex.unlock(io);
@@ -56,7 +56,7 @@ pub fn infinite_capture(self: *Camera, io : std.Io, sync_data: *sync.Synchronous
 
         if (0 != sync_data.free_flags.count()) {
             sync_data.mutex.lock(io) catch |inner_err| {
-                std.debug.print("Failed to lock mutex due to error: {any}\n", .{inner_err});
+                debug.print("Failed to lock mutex due to error: {any}\n", .{inner_err});
                 return;
             };
             defer sync_data.mutex.unlock(io);
@@ -75,7 +75,7 @@ pub fn infinite_capture(self: *Camera, io : std.Io, sync_data: *sync.Synchronous
             debug.print("\tError received was: {any}\n", .{err});
             {
                 sync_data.mutex.lock(io) catch |inner_err| {
-                    std.debug.print("Failed to lock mutex due to error: {any}\n", .{inner_err});
+                    debug.print("Failed to lock mutex due to error: {any}\n", .{inner_err});
                     return;
                 };
                 defer sync_data.mutex.unlock(io);
@@ -89,7 +89,7 @@ pub fn infinite_capture(self: *Camera, io : std.Io, sync_data: *sync.Synchronous
         const shared = self.publish_frame_to_sync_data(io, frame_captured.?, sync_data);
         if (false == shared) {
             sync_data.mutex.lock(io) catch |inner_err| {
-                std.debug.print("Failed to lock mutex due to error: {any}\n", .{inner_err});
+                debug.print("Failed to lock mutex due to error: {any}\n", .{inner_err});
                 return;
             };
             defer sync_data.mutex.unlock(io);
