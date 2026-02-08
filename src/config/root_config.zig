@@ -163,7 +163,7 @@ fn make_default_config(io : std.Io) !void {
     //var writer = std.fs.File.Writer.init(new_file, &writer_buffer);
     var writer = std.Io.File.writer(new_file, io, &writer_buffer);
 
-    VALUE_VIDEO_DURATION = 600;
+    VALUE_VIDEO_DURATION = 15;
     try writer.interface.print("{s} = {d}\n", .{FIELD_DURATION, VALUE_VIDEO_DURATION});
 
     const device = "/dev/video0";
