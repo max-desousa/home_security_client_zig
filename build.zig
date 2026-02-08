@@ -10,6 +10,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    //const mod_net = b.createModule(.{
+    //    .root_source_file = b.path("src/net/root_net.zig"),
+    //    .target = target,
+    //    .optimize = optimize,
+    //});
+
     const mod_config = b.createModule(.{
         .root_source_file = b.path("src/config/root_config.zig"),
         .target = target,
