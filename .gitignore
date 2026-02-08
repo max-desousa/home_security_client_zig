@@ -2,5 +2,6 @@
 zig-out/**/*
 err.txt
 **/*.mp4
+**/*.ts
 .grok/**/*
 config.zap

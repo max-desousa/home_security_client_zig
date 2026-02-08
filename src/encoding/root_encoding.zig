@@ -80,7 +80,7 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData, allocator : std.mem.All
         defer allocator.free(file_name_window);
 
         var file_name_buffer : [256]u8 = undefined;
-        const file_name = std.fmt.bufPrintSentinel(&file_name_buffer, "{s}-{s}.mp4", .{config.get_camera_name(), file_name_window}, 0) catch {
+        const file_name = std.fmt.bufPrintSentinel(&file_name_buffer, "{s}-{s}.ts", .{config.get_camera_name(), file_name_window}, 0) catch {
             set_error(io, sync_data, sync.ThreadingErrors.EncoderCouldNotGenerateFilename);
             return;
         };
@@ -107,7 +107,7 @@ fn create_video(
     file_name : [:0]const u8,
 ) void {
     var nullable_output_fmt_ctx : ?*c.struct_AVFormatContext = null;
-    if (c.avformat_alloc_output_context2(@ptrCast(&nullable_output_fmt_ctx), null, null, file_name) < 0) {
+    if (c.avformat_alloc_output_context2(@ptrCast(&nullable_output_fmt_ctx), null, "mpegts", file_name) < 0) {
         set_error(io, sync_data, sync.ThreadingErrors.EncoderCouldNotSetOutputContext);
         return;
     }
@@ -155,7 +155,7 @@ fn create_video(
            (null == sync_data.sync_error)) {
 
         defer {
-            still_in_relevant_time_window = time.is_time_in_current_window(io, file_name[0..(file_name.len - 4)]) catch |err| blk: {
+            still_in_relevant_time_window = time.is_time_in_current_window(io, file_name) catch |err| blk: {
                 debug.print("Error checking time window: {any}\n", .{err});
                 set_error(io, sync_data, sync.ThreadingErrors.EncoderCouldNotGetCurrentTime);
                 break :blk false;
