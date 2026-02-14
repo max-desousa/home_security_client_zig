@@ -7,49 +7,18 @@ const c = @import("c_imports").c;
 const time = @import("time");
 
 //##############################################################################
-// Function: set_encoder_context
-//
-// Description: Sets up the encoder context with desired parameters. Hard coded
-//             for 640x480 YUV420P at 30fps for now - will make configurable
-//             later.
-//##############################################################################
-fn set_encoder_context(encoder: *c.struct_AVCodec) ?*c.struct_AVCodecContext {
-    var enc_ctx : *c.struct_AVCodecContext = c.avcodec_alloc_context3(@ptrCast(encoder)) orelse {
-        return null;
-    };
-
-    const fps = config.get_camera_frame_rate();
-
-    // ------ Encoder parameters ------
-    enc_ctx.width = config.get_camera_width();
-    enc_ctx.height = config.get_camera_height();
-    enc_ctx.time_base = .{ .num = 1, .den = (fps * 1_000) };
-    enc_ctx.framerate = .{ .num = fps, .den = 1 };
-    enc_ctx.pix_fmt = c.AV_PIX_FMT_YUV420P;
-    enc_ctx.bit_rate = 0;
-    enc_ctx.gop_size = fps;
-    enc_ctx.max_b_frames = 0;
-    enc_ctx.flags |= c.AV_CODEC_FLAG_GLOBAL_HEADER | c.AV_CODEC_FLAG_LOW_DELAY;
-
-    //Buffer for getting crf value from config as string
-    var crf_buffer: [4]u8 = undefined;
-    const crf_str = std.fmt.bufPrintSentinel(&crf_buffer, "{d}", .{config.get_crf_value()}, 0) catch "25";
-
-    // ultrafast + zerolatency = perfect for security cam
-    _ = c.av_opt_set(enc_ctx.priv_data, "preset", "veryfast", 0);
-    _ = c.av_opt_set(enc_ctx.priv_data, "tune",   "zerolatency", 0);
-    _ = c.av_opt_set(enc_ctx.priv_data, "crf", crf_str, 0);
-
-    return enc_ctx;
-}
-
-//##############################################################################
 // Function: encoding_thread
 //
 // Description: This is the main entry point for running the endless encoding
 //              loop for the captured frames.
 //##############################################################################
-pub fn encoding_thread(sync_data: *sync.SynchronousData, allocator : std.mem.Allocator, io: std.Io) void {
+pub fn encoding_thread(
+    sync_data: *sync.SynchronousData, 
+    allocator : std.mem.Allocator, 
+    io: std.Io,
+    upload_data : *sync.UploadData,
+) void {
+    _ = &upload_data; // discard for now. 
     debug.print("\tLooking for H.264 encoder...\n", .{});
 
     // Step 1: Find the H.264 encoder
@@ -91,6 +60,45 @@ pub fn encoding_thread(sync_data: *sync.SynchronousData, allocator : std.mem.All
 
     set_error(io, sync_data, sync.ThreadingErrors.PrototypeEncoderNaturallyDone);
 }
+
+
+//##############################################################################
+// Function: set_encoder_context
+//
+// Description: Sets up the encoder context with desired parameters. Hard coded
+//             for 640x480 YUV420P at 30fps for now - will make configurable
+//             later.
+//##############################################################################
+fn set_encoder_context(encoder: *c.struct_AVCodec) ?*c.struct_AVCodecContext {
+    var enc_ctx : *c.struct_AVCodecContext = c.avcodec_alloc_context3(@ptrCast(encoder)) orelse {
+        return null;
+    };
+
+    const fps = config.get_camera_frame_rate();
+
+    // ------ Encoder parameters ------
+    enc_ctx.width = config.get_camera_width();
+    enc_ctx.height = config.get_camera_height();
+    enc_ctx.time_base = .{ .num = 1, .den = (fps * 1_000) };
+    enc_ctx.framerate = .{ .num = fps, .den = 1 };
+    enc_ctx.pix_fmt = c.AV_PIX_FMT_YUV420P;
+    enc_ctx.bit_rate = 0;
+    enc_ctx.gop_size = fps;
+    enc_ctx.max_b_frames = 0;
+    enc_ctx.flags |= c.AV_CODEC_FLAG_GLOBAL_HEADER | c.AV_CODEC_FLAG_LOW_DELAY;
+
+    //Buffer for getting crf value from config as string
+    var crf_buffer: [4]u8 = undefined;
+    const crf_str = std.fmt.bufPrintSentinel(&crf_buffer, "{d}", .{config.get_crf_value()}, 0) catch "25";
+
+    // ultrafast + zerolatency = perfect for security cam
+    _ = c.av_opt_set(enc_ctx.priv_data, "preset", "veryfast", 0);
+    _ = c.av_opt_set(enc_ctx.priv_data, "tune",   "zerolatency", 0);
+    _ = c.av_opt_set(enc_ctx.priv_data, "crf", crf_str, 0);
+
+    return enc_ctx;
+}
+
 
 fn set_error(io : std.Io, data: *sync.SynchronousData, err: sync.ThreadingErrors) void {
     data.mutex.lock(io) catch |inner_err| {
