@@ -10,6 +10,9 @@ const SIGNALS = [_]i32{
     std.os.SIG.INT,
 };
 
+// Bringing the debug allocator as seperate object dut to seperate deinit
+// process. (release builds don't have deinit in the same way. So we need
+// access to this parent object)
 var DEBUG_ALLOCATOR : std.heap.DebugAllocator(.{}) = .init;
 
 pub fn perfect_core_layout() !void {
@@ -40,5 +43,5 @@ pub fn perfect_core_layout() !void {
     var sync_data: sync.SynchronousData = .{};
 
     try group.concurrent(io, encoding.encoding_thread, .{&sync_data, allocator, io});
-    try group.concurrent(io, camera.run, .{&camera_obj, io, &sync_data});
+    try group.concurrent(io, camera.infinite_capture, .{&camera_obj, io, &sync_data});
 }

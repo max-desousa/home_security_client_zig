@@ -38,11 +38,22 @@ pub const SynchronousData = struct {
     const Self = @This();
     const BUFFER_SIZE = 32;
     mutex: std.Io.Mutex = .init,
+    // Slice of memory mapped addresses and meta data that the camera is saving
+    // the data to. (This is allocated in the camera threading. (Not fixed size
+    // as this should have kernel influence and we want the same number of
+    // buffers as we'll get with our ioctl request)
     buffers: []CameraBuffer = undefined,
+    // List of buffer indices for frame buffers ready to be encoded.
+    // stored in the order that the encoder needs to send them to the video. 
     buffers_ready_to_encode: [BUFFER_SIZE]u8 = std.mem.zeroes([BUFFER_SIZE]u8),
-    //free_flags: std.bit_set = std.bit_set.IntegerBitSet(BUFFER_SIZE).initEmpty(),
+    // Flags for buffers that no longer need to be reserved for the encoder. 
     free_flags: std.bit_set.IntegerBitSet(BUFFER_SIZE) = std.bit_set.IntegerBitSet(BUFFER_SIZE).initEmpty(),
+    // shared error state between encoding and camera threads in order for them
+    // to inform one another that they've failed. (Ex: We don't want to get
+    // stuck in an infinite encoding loop for a program where the camera has
+    // crashed )
     sync_error: ?ThreadingErrors = null,
+    // Values to track `buffers_ready_to_encode`
     head: usize = 0,
     tail: usize = 0,
 

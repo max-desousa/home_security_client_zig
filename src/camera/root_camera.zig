@@ -24,15 +24,27 @@ allocator: std.mem.Allocator,
 buffers: []sync.CameraBuffer = &.{},
 n_buffers: u8 = undefined,
 private_head: usize = 0,
-private_tail: usize = 0,
 
 
-pub fn run(self : *Camera, io : std.Io, sync_data: *sync.SynchronousData) void {
-    sync_data.buffers = self.buffers;
-    self.infinite_capture(io, sync_data);
-}
-
+//******************************************************************************
+// Function:    infinite_capture()
+//
+// Description: This is the ultimate caller for taking a camera object and 
+//              infinitely capturing video. This is ultimately the function
+//              that would be your "camera thread". There does need to be an
+//              initialization of the camera first.
+//
+//              Note: this function (really a thread) does require a consumer
+//              of the frames. This function will do nothing to dequeue frames.
+//              There needs to be a consumer - in the current application this
+//              would be the encoder thread. 
+//******************************************************************************
 pub fn infinite_capture(self: *Camera, io : std.Io, sync_data: *sync.SynchronousData) void {
+    // Point the buffers (slice) for sync data to the camera's
+    // allocated/memory-mapped v4l buffers. 
+    sync_data.buffers = self.buffers;
+
+    // Queue all buffers and start stream.
     self.start_capturing() catch |err| {
         debug.print("There was an error starting the capturing of frames with the camera...\n", .{});
         debug.print("\tError code: {any}\n", .{err});
@@ -47,13 +59,18 @@ pub fn infinite_capture(self: *Camera, io : std.Io, sync_data: *sync.Synchronous
         return;
     };
 
+    // infintely capture frames. 
     while (true) {
+        // Check for errors in any of the related threads to see if we should
+        // abort capturing frames (and end the application)
         if (null != sync_data.sync_error) {
             debug.print("External error - closing camera thread...\n", .{});
             debug.print("\tExternal error was: {any}\n", .{sync_data.sync_error.?});
             return;
         }
 
+        // Look to see if there are any buffers that can be released back to
+        // the camera?
         if (0 != sync_data.free_flags.count()) {
             sync_data.mutex.lock(io) catch |inner_err| {
                 debug.print("Failed to lock mutex due to error: {any}\n", .{inner_err});
@@ -70,7 +87,8 @@ pub fn infinite_capture(self: *Camera, io : std.Io, sync_data: *sync.Synchronous
             }
         }
 
-        const frame_captured = self.capture_single_frame() catch |err| {
+        // Attempt to capture / check if next frame is available. 
+        const nullable_frame_captured = self.capture_single_frame() catch |err| {
             debug.print("Error capturing a frame from the camera...\n", .{});
             debug.print("\tError received was: {any}\n", .{err});
             {
@@ -84,10 +102,12 @@ pub fn infinite_capture(self: *Camera, io : std.Io, sync_data: *sync.Synchronous
             return;
         };
 
-        if (null == frame_captured) continue;
+        // if we're here there was no error in calling the capture logic, but
+        // we need to check that a new frame was provided (output was not null)
+        const frame_captured = nullable_frame_captured orelse continue;
 
-        const shared = self.publish_frame_to_sync_data(io, frame_captured.?, sync_data);
-        if (false == shared) {
+        // add buffer to list to encode
+        sync_data.push(io, frame_captured) catch {
             sync_data.mutex.lock(io) catch |inner_err| {
                 debug.print("Failed to lock mutex due to error: {any}\n", .{inner_err});
                 return;
@@ -96,31 +116,10 @@ pub fn infinite_capture(self: *Camera, io : std.Io, sync_data: *sync.Synchronous
             sync_data.sync_error = sync.ThreadingErrors.CameraRunOutOfBuffers;
             debug.print("Camera ran out of buffers... aborting\n", .{});
             return;
-        }
+        };
     }
 }
 
-fn publish_frame_to_sync_data(self: *Camera, io : std.Io, buff_num: u8, sync_data: *sync.SynchronousData) bool {
-    sync_data.push(io, @intCast(buff_num)) catch return false;
-    self.private_head = sync_data.head;
-    return true;
-}
-
-fn check_and_release_buffer(self: *Camera, sync_data: *sync.SynchronousData) void {
-    if (self.private_tail == sync_data.tail) {
-        return;
-    }
-
-    self.release_buffer(self.private_tail) catch |err| {
-        sync_data.mutex.lock();
-        defer sync_data.mutex.unlock();
-        sync_data.sync_error = sync.ThreadingErrors.CameraCouldNotFreeBuffer;
-        debug.print("Could not free buffer...\n", .{});
-        debug.print("\tError received: {any}\n", .{err});
-        return;
-    };
-    self.private_tail = ((self.private_tail + 1) % sync_data.BUFFER_SIZE);
-}
 
 pub fn init(dev_name: [*:0]const u8, allocator: std.mem.Allocator) !Camera {
     var camera: Camera = .{
@@ -430,13 +429,20 @@ fn initialize_mmap(self: *Camera) !void {
     }
 }
 
+//******************************************************************************
+// Function:    start_capturing
+//
+// Description: This function is a wrapper for sending the ioctl sequnce for the
+//              configured camera to begin the process of filling the memory
+//              mapped buffers.
+//******************************************************************************
 fn start_capturing(self: Camera) !void {
     if ((null == self.file_descriptor) or
-        (2 > self.buffers.len))
-    {
+        (2 > self.buffers.len)) {
         return error.BadStructInstance;
     }
 
+    // Go through and queue all the buffers for v4l to store data in. 
     for (0..self.buffers.len) |index| {
         var buf: c.struct_v4l2_buffer = std.mem.zeroes(c.struct_v4l2_buffer);
 
@@ -450,6 +456,8 @@ fn start_capturing(self: Camera) !void {
         }
     }
 
+    // Trigger the stream to allow the camera to start storing to those queued
+    // buffers.
     var vtype: c.enum_v4l2_buf_type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
     if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_STREAMON, &vtype)) {
         debug.print("Failed to start video streaming.\n", .{});
@@ -458,6 +466,7 @@ fn start_capturing(self: Camera) !void {
 }
 
 pub fn capture_single_frame(self: Camera) !?u8 {
+    // Rudamentary check that object was initialized. 
     if (null == self.file_descriptor) {
         return error.BadStructInstance;
     }
@@ -488,6 +497,14 @@ pub fn capture_single_frame(self: Camera) !?u8 {
     return @intCast(buf.index);
 }
 
+//##############################################################################
+// Function:    release_buffer
+// 
+// Description: When a frame is captured it's stored in a buffer that is 
+//              reserved with the relevant frame data until the application
+//              indicates that it's free to overwrite. This function is the
+//              ioctl wrapper for that indication.
+//##############################################################################
 fn release_buffer(self: Camera, buffer_index: u32) !void {
     var buf: c.struct_v4l2_buffer = std.mem.zeroes(c.struct_v4l2_buffer);
     buf.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
