@@ -95,9 +95,10 @@ pub const SynchronousData = struct {
 
 pub const UploadData = struct {
     mutex : std.Io.Mutex,
-    file_list : std.ArrayList([]u8),
+    file_list : std.ArrayList([:0]const u8),
     allocator : std.mem.Allocator,
     io : std.Io,
+    reason_to_exit : ?anyerror,
 
     pub fn init(
         allocator : std.mem.Allocator,
@@ -108,18 +109,25 @@ pub const UploadData = struct {
             .file_list = .empty,
             .allocator = allocator,
             .io = io,
+            .reason_to_exit = null,
         };
     }
 
-    pub fn pop_file(self : *UploadData) !?[]u8 {
+    pub fn pop_file(self : *UploadData, buffer : []u8) !?[:0] u8 {
         try self.mutex.lock(self.io);
         defer self.mutex.unlock(self.io);
-        return self.file_list.pop();
+        std.fmt.bufPrintSentinel(buffer, try self.file_list.pop();
     }
 
-    pub fn push_file(self : *UploadData, file : []const u8) !void {
+    pub fn push_file(self : *UploadData, file : [:0]const u8) !void {
+        const new_slice = try self.allocator.dupeSentinel(u8, file, 0);
         try self.mutex.lock(self.io);
         defer self.mutex.unlock(self.io);
-        try self.file_list.append(self.allocator, file);
+        try self.file_list.append(self.allocator, new_slice);
+    }
+
+    pub fn deinit(self : *UploadData) void {
+        for (self.file_list.items) |item| {
+        }
     }
 };
