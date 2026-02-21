@@ -16,9 +16,7 @@ pub fn encoding_thread(
     sync_data: *sync.SynchronousData, 
     allocator : std.mem.Allocator, 
     io: std.Io,
-    upload_data : *sync.UploadData,
 ) void {
-    _ = &upload_data; // discard for now. 
     debug.print("\tLooking for H.264 encoder...\n", .{});
 
     // Step 1: Find the H.264 encoder
@@ -42,7 +40,9 @@ pub fn encoding_thread(
 
     while (null == sync_data.sync_error) {
         const duration = config.get_config_video_duration(); // 10 minutes
-        const file_name_window = time.get_windowed_time_for_filename_string(allocator, io, duration) catch {
+        const file_name_window =
+            time.get_windowed_time_for_filename_string(allocator, io, duration)
+            catch {
             set_error(io, sync_data, sync.ThreadingErrors.EncoderCouldNotGenerateFilename);
             return;
         };
@@ -55,10 +55,17 @@ pub fn encoding_thread(
         };
 
         create_video(io, sync_data, enc_ctx, file_name);
+        sync_data.upload_data.push_file(allocator, io, file_name) catch {
+            debug.print("Error uploading file... how do you want to handle this?\n", .{});
+        };
     }
     debug.print("Encoding thread was ended due to encountering sync_data error: {any}\n", .{sync_data.sync_error.?});
 
-    set_error(io, sync_data, sync.ThreadingErrors.PrototypeEncoderNaturallyDone);
+    set_error(
+        io, 
+        sync_data,
+        sync.ThreadingErrors.PrototypeEncoderNaturallyDone, 
+    );
 }
 
 
@@ -100,9 +107,13 @@ fn set_encoder_context(encoder: *c.struct_AVCodec) ?*c.struct_AVCodecContext {
 }
 
 
-fn set_error(io : std.Io, data: *sync.SynchronousData, err: sync.ThreadingErrors) void {
+fn set_error(
+    io : std.Io,
+    data: *sync.SynchronousData,
+    err: sync.ThreadingErrors,
+) void {
     data.mutex.lock(io) catch |inner_err| {
-        debug.print("Problem locking mutex in encoding thread: {any}\n", .{inner_err});
+        debug.print("Problem locking camera mutex in encoding thread: {any}\n", .{inner_err});
     };
     defer data.mutex.unlock(io);
     data.sync_error = err;
@@ -170,35 +181,35 @@ fn create_video(
             };
         }
 
-        const buf_idx = sync_data.get_first(io) orelse continue;
+        const buf_idx = sync_data.camera_data.get_first(io) orelse continue;
         const buffer_index = buf_idx;
 
         // ----- Raw YUYV frame -----
-        var src_frame : *c.struct_AVFrame = c.av_frame_alloc() orelse { sync_data.pop(io) catch {}; continue; };
+        var src_frame : *c.struct_AVFrame = c.av_frame_alloc() orelse { sync_data.camera_data.pop(io) catch {}; continue; };
         defer c.av_frame_free(@ptrCast(&src_frame));
 
         src_frame.format = c.AV_PIX_FMT_YUYV422;
         src_frame.width  = config.get_camera_width();
         src_frame.height = config.get_camera_height();
         if (c.av_frame_get_buffer(@ptrCast(src_frame), 0) < 0) {
-            sync_data.pop(io) catch {};
+            sync_data.camera_data.pop(io) catch {};
             continue;
         }
 
-        const yuyv_ptr: [*c]const u8 = @ptrCast(sync_data.buffers[buffer_index].start);
-        const yuyv_len = sync_data.buffers[buffer_index].bytes_used;
+        const yuyv_ptr: [*c]const u8 = @ptrCast(sync_data.camera_data.buffers[buffer_index].start);
+        const yuyv_len = sync_data.camera_data.buffers[buffer_index].bytes_used;
         @memcpy(src_frame.data[0], yuyv_ptr[0..yuyv_len]);
         src_frame.linesize[0] = config.get_camera_width() * 2;
 
         // ----- Convert to YUV420P -----
-        var dst_frame : *c.struct_AVFrame = c.av_frame_alloc() orelse { sync_data.pop(io) catch {}; continue; };
+        var dst_frame : *c.struct_AVFrame = c.av_frame_alloc() orelse { sync_data.camera_data.pop(io) catch {}; continue; };
         defer c.av_frame_free(@ptrCast(&dst_frame));
 
         dst_frame.format = c.AV_PIX_FMT_YUV420P;
         dst_frame.width  = config.get_camera_width();
         dst_frame.height = config.get_camera_height();
         if (c.av_frame_get_buffer(@ptrCast(dst_frame), 0) < 0) {
-            sync_data.pop(io) catch {};
+            sync_data.camera_data.pop(io) catch {};
             continue;
         }
 
@@ -220,8 +231,8 @@ fn create_video(
             @ptrCast(&dst_frame.linesize));
 
         const pts_us : i64 =
-            sync_data.buffers[buffer_index].time_stamp.tv_sec * 1_000_000 +
-            sync_data.buffers[buffer_index].time_stamp.tv_usec;
+            sync_data.camera_data.buffers[buffer_index].time_stamp.tv_sec * 1_000_000 +
+            sync_data.camera_data.buffers[buffer_index].time_stamp.tv_usec;
         if (null == starting_pts_us) {
             starting_pts_us = pts_us;
         }
@@ -251,7 +262,7 @@ fn create_video(
             c.av_packet_unref(&pkt);
         }
 
-        sync_data.pop(io) catch {};
+        sync_data.camera_data.pop(io) catch {};
     }
 
     // ----- Finalise file -----

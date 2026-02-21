@@ -34,17 +34,21 @@ pub fn perfect_core_layout() !void {
 
     const io = threaded.io();
 
+    // Establish/Read config file to determine specific behaviors.
     try config.establish_config(io);
+
+    // Try to create camera object (making sure system works) before starting 
+    // multithreaded portion.
     var camera_obj = try camera.init(config.get_camera_hardware_name(), allocator);
     defer camera_obj.deinit();
 
     var group : std.Io.Group = .init;
     defer group.await(io) catch {};
 
+    // Create data stuctures for sharing data between threads.
     var sync_data: sync.SynchronousData = .{};
-    var upload_data : sync.UploadData = .init(allocator, io);
 
-    try group.concurrent(io, encoding.encoding_thread, .{&sync_data, allocator, io, &upload_data});
+    try group.concurrent(io, encoding.encoding_thread, .{&sync_data, allocator, io });
     try group.concurrent(io, camera.infinite_capture, .{&camera_obj, io, &sync_data});
-    try group.concurrent(io, net.upload_thread, .{ io, &upload_data });
+    try group.concurrent(io, net.upload_thread, .{ allocator, io, &sync_data });
 }

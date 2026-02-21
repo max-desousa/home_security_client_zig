@@ -42,7 +42,7 @@ private_head: usize = 0,
 pub fn infinite_capture(self: *Camera, io : std.Io, sync_data: *sync.SynchronousData) void {
     // Point the buffers (slice) for sync data to the camera's
     // allocated/memory-mapped v4l buffers. 
-    sync_data.buffers = self.buffers;
+    sync_data.camera_data.buffers = self.buffers;
 
     // Queue all buffers and start stream.
     self.start_capturing() catch |err| {
@@ -71,14 +71,14 @@ pub fn infinite_capture(self: *Camera, io : std.Io, sync_data: *sync.Synchronous
 
         // Look to see if there are any buffers that can be released back to
         // the camera?
-        if (0 != sync_data.free_flags.count()) {
+        if (0 != sync_data.camera_data.free_flags.count()) {
             sync_data.mutex.lock(io) catch |inner_err| {
                 debug.print("Failed to lock mutex due to error: {any}\n", .{inner_err});
                 return;
             };
             defer sync_data.mutex.unlock(io);
-            while (sync_data.free_flags.findFirstSet()) |num| {
-                sync_data.free_flags.unset(num);
+            while (sync_data.camera_data.free_flags.findFirstSet()) |num| {
+                sync_data.camera_data.free_flags.unset(num);
                 self.release_buffer(@intCast(num)) catch |err| {
                     debug.print("Error Freeing buffer...\n", .{});
                     debug.print("\tError code: {any}\n", .{err});
@@ -107,7 +107,7 @@ pub fn infinite_capture(self: *Camera, io : std.Io, sync_data: *sync.Synchronous
         const frame_captured = nullable_frame_captured orelse continue;
 
         // add buffer to list to encode
-        sync_data.push(io, frame_captured) catch {
+        sync_data.camera_data.push(io, frame_captured) catch {
             sync_data.mutex.lock(io) catch |inner_err| {
                 debug.print("Failed to lock mutex due to error: {any}\n", .{inner_err});
                 return;
