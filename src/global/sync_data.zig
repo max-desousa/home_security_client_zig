@@ -95,20 +95,16 @@ pub const UploadData = struct {
 
     pub fn pop_file(
         self : *Self,
+        allocator : std.mem.Allocator,
         io : std.Io,
-        buffer : []u8
-    ) !?[:0] u8 {
+    ) !void {
         try self.mutex.lock(io);
         defer self.mutex.unlock(io);
 
         const nullable_popped_file = self.file_list.pop();
 
         if (nullable_popped_file) |popped_file| {
-            const result = try std.fmt.bufPrintSentinel(buffer, "{s}", .{ popped_file }, 0);
-            return result;
-        }
-        else {
-            return null;
+            allocator.free(popped_file);
         }
     }
 

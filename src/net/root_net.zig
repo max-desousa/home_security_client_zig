@@ -1,6 +1,7 @@
 const std = @import("std");
 const sync_data = @import("sync_data");
 const debug = @import("debug");
+const config = @import("config");
 
 pub fn upload_thread(
     allocator : std.mem.Allocator,
@@ -11,22 +12,26 @@ pub fn upload_thread(
 
         if (shared_data.upload_data.file_list.items.len > 0) {
             shared_data.upload_data.mutex.lock(io) catch { continue; };
-            const file_name = shared_data.upload_data.file_list.items[0];
+            const last_index = shared_data.upload_data.file_list.items.len;
+            const file_name = shared_data.upload_data.file_list.items[last_index];
             shared_data.upload_data.mutex.unlock(io);
             const upload_result = upload_video(file_name);
             if (upload_result) {
-                unreachable;
+                //What do if popping the successfully uploaded file errors out?
+                //The only thing that can error out is locking the mutex...
+                //Only error path is due to mutex being cancelable.
+                shared_data.upload_data.pop_file(allocator, io) catch {};
             }
             else |err| {
                 debug.print("Error Uploading video:\n", .{});
                 debug.print("\tError: {any}\n", .{ err });
                 debug.print("\tTrying upload again...\n", .{});
-                std.Io.sleep(io, .fromSeconds(10), .real) catch { continue; };
+                std.Io.sleep(io, .fromSeconds(config.get_config_video_duration() * 2), .real) catch { continue; };
                 continue;
             }
         }
     }
-    _ = std.Io.sleep(io, .fromSeconds(10), .real) catch {};
+    _ = std.Io.sleep(io, .fromSeconds(config.get_config_video_duration() * 2), .real) catch {};
     debug.print("Printing list before final cleanup...\n", .{});
     for (shared_data.upload_data.file_list.items) |item| {
         debug.print("\t{s}\n", .{ item });

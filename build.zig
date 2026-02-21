@@ -16,6 +16,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const mod_config = b.createModule(.{
+        .root_source_file = b.path("src/config/root_config.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const mod_sync_data = b.createModule(.{
         .root_source_file = b.path("src/global/sync_data.zig"),
         .target = target,
@@ -33,13 +39,8 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "sync_data", .module = mod_sync_data },
             .{ .name = "debug", .module = mod_debug },
+            .{ .name = "config", .module = mod_config },
         },
-    });
-
-    const mod_config = b.createModule(.{
-        .root_source_file = b.path("src/config/root_config.zig"),
-        .target = target,
-        .optimize = optimize,
     });
 
     const mod_time = b.createModule(.{
