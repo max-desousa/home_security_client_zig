@@ -12,10 +12,10 @@ pub fn upload_thread(
 
         if (shared_data.upload_data.file_list.items.len > 0) {
             shared_data.upload_data.mutex.lock(io) catch { continue; };
-            const last_index = shared_data.upload_data.file_list.items.len;
+            const last_index = shared_data.upload_data.file_list.items.len - 1;
             const file_name = shared_data.upload_data.file_list.items[last_index];
             shared_data.upload_data.mutex.unlock(io);
-            const upload_result = upload_video(file_name);
+            const upload_result = upload_video(allocator, io, file_name);
             if (upload_result) {
                 //What do if popping the successfully uploaded file errors out?
                 //The only thing that can error out is locking the mutex...
@@ -26,19 +26,19 @@ pub fn upload_thread(
                 debug.print("Error Uploading video:\n", .{});
                 debug.print("\tError: {any}\n", .{ err });
                 debug.print("\tTrying upload again...\n", .{});
-                std.Io.sleep(io, .fromSeconds(config.get_config_video_duration() * 2), .real) catch { continue; };
+                std.Io.sleep(io, .fromSeconds(@intCast(config.get_config_video_duration() * 2)), .real) catch { continue; };
                 continue;
             }
         }
     }
-    _ = std.Io.sleep(io, .fromSeconds(config.get_config_video_duration() * 2), .real) catch {};
+    _ = std.Io.sleep(io, .fromSeconds(@intCast(config.get_config_video_duration() * 2)), .real) catch {};
     debug.print("Printing list before final cleanup...\n", .{});
     for (shared_data.upload_data.file_list.items) |item| {
         debug.print("\t{s}\n", .{ item });
     }
     debug.print("Final attemmpt to upload before crashing program from thread error...\n", .{});
     for (shared_data.upload_data.file_list.items) |item| {
-        upload_video(item) catch {
+        upload_video(allocator, io, item) catch {
             debug.print("******** Error uploading to the server **********", .{});
         };
     }
@@ -51,7 +51,45 @@ pub fn upload_thread(
     shared_data.upload_data.file_list.deinit(allocator);
 }
 
-fn upload_video(file : [:0]const u8) !void {
-    debug.print("Uploading file: {s}\n", .{ file });
-    return error.TBD;
+fn upload_video(
+    allocator : std.mem.Allocator,
+    io : std.Io,
+    path : [:0]const u8
+) !void {
+    debug.print("Uploading file: {s}\n", .{ path });
+
+    var client :std.http.Client = .{ .allocator = allocator, .io = io };
+    defer client.deinit();
+
+    var connection = try client.connect(
+        try .init("127.0.0.1"),
+        9876,
+        .plain,
+    );
+    defer connection.end() catch {};
+
+    const file : std.Io.File = try std.Io.Dir.openFile(std.Io.Dir.cwd(), io, path, .{});
+    defer file.close(io);
+    const file_size = try file.length(io);
+
+    const uri = try std.Uri.parse("127.0.0.1");
+    var req = try client.request(.POST, uri, .{});
+    defer req.deinit();
+
+    req.headers.content_type = .{ .override = config.get_server_address() };
+
+    req.transfer_encoding = .{ .content_length = file_size };
+
+    var buffer : [4096]u8 = undefined;
+    var file_reader = file.reader(io, &buffer);
+
+    try req.sendBodilessUnflushed();
+    while (file_reader.interface.take(buffer.len)) |bytes| {
+        try req.sendBodyComplete(bytes);
+    }
+    else |err| {
+        if (error.EndOfStream != err) {
+            return err;
+        }
+    }
 }

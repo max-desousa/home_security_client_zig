@@ -18,6 +18,7 @@ const FIELD_CRASH_ON_POOR_PERF = "[crash: poor cam performance]";
 const FIELD_CRF_VALUE = "[video: crf value]";
 const FIELD_CAMERA_NAME = "[camera name for archiving]";
 const FIELD_UTC_OFFSET_SECONDS = "[utc offset seconds]";
+const FIELD_SERVER_ADDRESS = "[ip address of the server]";
 
 
 // Variables backing global tracking of states
@@ -34,6 +35,8 @@ var VALUE_CRF_VALUE : u8 = undefined;
 var BUFFER_FOR_VALUE_CAMERA_NAME : [128]u8 = undefined;
 var VALUE_CAMERA_NAME : [:0]u8 = BUFFER_FOR_VALUE_CAMERA_NAME[0..0 :0];
 var VALUE_UTC_OFFSET_SECONDS : i64 = undefined;
+var BUFFER_FOR_VALUE_SERVER_ADDRESS : [64]u8 = undefined;
+var VALUE_SERVER_ADDRESS : [:0]u8 = BUFFER_FOR_VALUE_SERVER_ADDRESS[0..0 : 0];
 
 
 //Getters to make the data immutable to consumers of the module. 
@@ -72,6 +75,10 @@ pub fn get_camera_name() [:0]u8 {
 
 pub fn get_utc_offset_seconds() i64 {
     return VALUE_UTC_OFFSET_SECONDS;
+}
+
+pub fn get_server_address() [:0]u8 {
+    return VALUE_SERVER_ADDRESS;
 }
 
 
@@ -144,6 +151,11 @@ fn parse_file(file : std.Io.File, io : std.Io) !void {
         else if (std.mem.eql(u8, before, FIELD_UTC_OFFSET_SECONDS)) {
             VALUE_UTC_OFFSET_SECONDS = try std.fmt.parseInt(i64, after, 10);
         }
+        else if (std.mem.eql(u8, before, FIELD_SERVER_ADDRESS)) {
+            @memcpy(BUFFER_FOR_VALUE_SERVER_ADDRESS[0..after.len], after);
+            BUFFER_FOR_VALUE_SERVER_ADDRESS[after.len] = 0;
+            VALUE_SERVER_ADDRESS = BUFFER_FOR_VALUE_SERVER_ADDRESS[0..after.len :0];
+        }
         else {
             return error.InvalidOptionInFile;
         }
@@ -204,6 +216,12 @@ fn make_default_config(io : std.Io) !void {
 
     VALUE_UTC_OFFSET_SECONDS = -18_000;
     try writer.interface.print("{s} = {d}\n", .{FIELD_UTC_OFFSET_SECONDS, VALUE_UTC_OFFSET_SECONDS});
+
+    const address = "http://127.0.0.1:3959";
+    @memcpy(BUFFER_FOR_VALUE_SERVER_ADDRESS[0..address.len], address);
+    BUFFER_FOR_VALUE_SERVER_ADDRESS[address.len] = 0;
+    VALUE_SERVER_ADDRESS = BUFFER_FOR_VALUE_SERVER_ADDRESS[0..address.len :0];
+    try writer.interface.print("{s} = {s}\n", .{FIELD_SERVER_ADDRESS, VALUE_SERVER_ADDRESS });
 
     try writer.end();
 }
