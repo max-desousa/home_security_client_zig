@@ -61,29 +61,31 @@ fn upload_video(
     var client :std.http.Client = .{ .allocator = allocator, .io = io };
     defer client.deinit();
 
-    var connection = try client.connect(
-        try .init("127.0.0.1"),
-        9876,
-        .plain,
-    );
-    defer connection.end() catch {};
-
     const file : std.Io.File = try std.Io.Dir.openFile(std.Io.Dir.cwd(), io, path, .{});
     defer file.close(io);
-    const file_size = try file.length(io);
+    //const file_size = try file.length(io);
+    
+    var buffer_for_uri : [512]u8 = undefined;
+    const uri_slice = try std.fmt.bufPrint(
+        &buffer_for_uri, 
+        "http://{s}:{d}", 
+        .{
+            config.get_server_address(), 
+            config.get_server_port() 
+        },
+    );
 
-    const uri = try std.Uri.parse("127.0.0.1");
+    const uri = try std.Uri.parse(uri_slice);
     var req = try client.request(.POST, uri, .{});
     defer req.deinit();
 
     req.headers.content_type = .{ .override = config.get_server_address() };
 
-    req.transfer_encoding = .{ .content_length = file_size };
+    //req.transfer_encoding = .{ .content_length = file_size };
 
     var buffer : [4096]u8 = undefined;
     var file_reader = file.reader(io, &buffer);
 
-    try req.sendBodilessUnflushed();
     while (file_reader.interface.take(buffer.len)) |bytes| {
         try req.sendBodyComplete(bytes);
     }
