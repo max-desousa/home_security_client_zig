@@ -121,7 +121,7 @@ pub fn infinite_capture(self: *Camera, io : std.Io, sync_data: *sync.Synchronous
 }
 
 
-pub fn init(dev_name: [*:0]const u8, allocator: std.mem.Allocator) !Camera {
+pub fn init(dev_name: [:0]const u8, allocator: std.mem.Allocator) !Camera {
     var camera: Camera = .{
         .file_descriptor = null,
         .device_name = dev_name,
