@@ -63,7 +63,10 @@ fn upload_video(
 
     const file : std.Io.File = try std.Io.Dir.openFile(std.Io.Dir.cwd(), io, path, .{});
     defer file.close(io);
-    //const file_size = try file.length(io);
+    //
+    // Create reader for transferring video contents
+    var chunk_buffer : [4096]u8 = undefined;
+    var file_reader = file.reader(io, &chunk_buffer);
     
     var buffer_for_uri : [512]u8 = undefined;
     const uri_slice = try std.fmt.bufPrint(
@@ -79,15 +82,15 @@ fn upload_video(
     var req = try client.request(.POST, uri, .{});
     defer req.deinit();
 
-    req.headers.content_type = .{ .override = config.get_server_address() };
+    req.transfer_encoding = .chunked;
 
-    //req.transfer_encoding = .{ .content_length = file_size };
+    var body_buffer : [4096]u8 = undefined;
+    var body_writer = try req.sendBodyUnflushed(&body_buffer);
+    defer body_writer.end() catch {};
 
-    var buffer : [4096]u8 = undefined;
-    var file_reader = file.reader(io, &buffer);
-
-    while (file_reader.interface.take(buffer.len)) |bytes| {
-        try req.sendBodyComplete(bytes);
+    while (file_reader.interface.fillMore()) {
+        _ = try body_writer.writer.write(file_reader.interface.buffered());
+        file_reader.interface.tossBuffered();
     }
     else |err| {
         if (error.EndOfStream != err) {
