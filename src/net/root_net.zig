@@ -63,7 +63,11 @@ fn upload_video(
 
     const file : std.Io.File = try std.Io.Dir.openFile(std.Io.Dir.cwd(), io, path, .{});
     defer file.close(io);
-    //
+
+    //Get file length in bytes
+    const file_stat = try std.Io.File.stat(file, io);
+    const file_length = file_stat.size;
+
     // Create reader for transferring video contents
     var chunk_buffer : [4096]u8 = undefined;
     var file_reader = file.reader(io, &chunk_buffer);
@@ -82,7 +86,7 @@ fn upload_video(
     var req = try client.request(.POST, uri, .{});
     defer req.deinit();
 
-    req.transfer_encoding = .chunked;
+    req.transfer_encoding = .{ .content_length = file_length };
 
     var body_buffer : [4096]u8 = undefined;
     var body_writer = try req.sendBodyUnflushed(&body_buffer);
