@@ -68,6 +68,13 @@ fn upload_video(
     const file_stat = try std.Io.File.stat(file, io);
     const file_length = file_stat.size;
 
+    //Here we'll get the time/date portion of the filename - this is what the
+    //server will save the file as under a folder named after the camera.
+    const nullable_first_cut = std.mem.cutLast(u8, path, "-");
+    const first_cut = nullable_first_cut.?;
+    const nullable_second_cut = std.mem.cutLast(u8, first_cut.@"1", ".");
+    const second_cut = nullable_second_cut.?;
+
     // Create reader for transferring video contents
     var chunk_buffer : [4096]u8 = undefined;
     var file_reader = file.reader(io, &chunk_buffer);
@@ -87,6 +94,14 @@ fn upload_video(
     defer req.deinit();
 
     req.transfer_encoding = .{ .content_length = file_length };
+
+    const extra_headers : [2]std.http.Header = .{
+        .{ .name = "Camera Name", .value = config.get_camera_name() },
+        .{ .name = "File Name", .value = second_cut.@"0" },
+    };
+    req.extra_headers = &extra_headers;
+
+    //All headers must be complete by this point in time. 
 
     var body_buffer : [4096]u8 = undefined;
     var body_writer = try req.sendBodyUnflushed(&body_buffer);
