@@ -95,9 +95,10 @@ fn upload_video(
 
     req.transfer_encoding = .{ .content_length = file_length };
 
-    const extra_headers : [2]std.http.Header = .{
+    const extra_headers : [3]std.http.Header = .{
         .{ .name = "Camera Name", .value = config.get_camera_name() },
         .{ .name = "File Name", .value = second_cut.@"0" },
+        .{ .name = "Classification", .value = "Archival" },
     };
     req.extra_headers = &extra_headers;
 
