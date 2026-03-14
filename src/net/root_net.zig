@@ -82,10 +82,12 @@ fn upload_video(
     var buffer_for_uri : [512]u8 = undefined;
     const uri_slice = try std.fmt.bufPrint(
         &buffer_for_uri, 
-        "http://{s}:{d}", 
+        "http://{s}:{d}/archival/{s}/{s}", 
         .{
             config.get_server_address(), 
-            config.get_server_port() 
+            config.get_server_port(),
+            config.get_camera_name(),
+            path,
         },
     );
 
@@ -95,10 +97,8 @@ fn upload_video(
 
     req.transfer_encoding = .{ .content_length = file_length };
 
-    const extra_headers : [3]std.http.Header = .{
-        .{ .name = "Camera Name", .value = config.get_camera_name() },
-        .{ .name = "File Name", .value = second_cut.@"0" },
-        .{ .name = "Classification", .value = "Archival" },
+    const extra_headers : [1]std.http.Header = .{
+        .{ .name = "FILE_NAME", .value = second_cut.@"0" },
     };
     req.extra_headers = &extra_headers;
 
