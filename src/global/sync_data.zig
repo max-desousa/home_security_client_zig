@@ -34,15 +34,21 @@ pub const ThreadingErrors = error{
     CameraFrameRateDoesNotMatchRequested,
 };
 
-pub const SynchronousData = struct {
+pub const CameraData = struct {
     const Self = @This();
     const BUFFER_SIZE = 32;
     mutex: std.Io.Mutex = .init,
+    // Slice of memory mapped addresses and meta data that the camera is saving
+    // the data to. (This is allocated in the camera threading. (Not fixed size
+    // as this should have kernel influence and we want the same number of
+    // buffers as we'll get with our ioctl request)
     buffers: []CameraBuffer = undefined,
+    // List of buffer indices for frame buffers ready to be encoded.
+    // stored in the order that the encoder needs to send them to the video. 
     buffers_ready_to_encode: [BUFFER_SIZE]u8 = std.mem.zeroes([BUFFER_SIZE]u8),
-    //free_flags: std.bit_set = std.bit_set.IntegerBitSet(BUFFER_SIZE).initEmpty(),
+    // Flags for buffers that no longer need to be reserved for the encoder. 
     free_flags: std.bit_set.IntegerBitSet(BUFFER_SIZE) = std.bit_set.IntegerBitSet(BUFFER_SIZE).initEmpty(),
-    sync_error: ?ThreadingErrors = null,
+    // Values to track `buffers_ready_to_encode`
     head: usize = 0,
     tail: usize = 0,
 
@@ -50,8 +56,7 @@ pub const SynchronousData = struct {
         try self.mutex.lock(io);
         defer self.mutex.unlock(io);
         if (self.head == self.tail) {
-            return error.Empty;
-        }
+            return error.Empty; }
         const value = self.buffers_ready_to_encode[self.tail];
         self.tail = ((self.tail + 1) % BUFFER_SIZE);
         self.free_flags.set(value);
@@ -81,3 +86,57 @@ pub const SynchronousData = struct {
         return @intCast(self.tail);
     }
 };
+
+
+pub const UploadData = struct {
+    const Self = @This();
+    mutex: std.Io.Mutex = .init,
+    file_list : std.ArrayList([:0]const u8) = .empty,
+
+    pub fn pop_file(
+        self : *Self,
+        allocator : std.mem.Allocator,
+        io : std.Io,
+    ) !void {
+        try self.mutex.lock(io);
+        defer self.mutex.unlock(io);
+
+        const nullable_popped_file = self.file_list.pop();
+
+        if (nullable_popped_file) |popped_file| {
+            allocator.free(popped_file);
+        }
+    }
+
+    pub fn push_file(
+        self : *Self, 
+        allocator : std.mem.Allocator,
+        io : std.Io,
+        file : [:0]const u8
+    ) !void {
+        const new_slice = try allocator.dupeSentinel(u8, file, 0);
+        try self.mutex.lock(io);
+        defer self.mutex.unlock(io);
+        try self.file_list.append(allocator, new_slice);
+    }
+
+    pub fn deinit(self : *Self, allocator : std.mem.Allocator) void {
+        for (self.file_list.items) |item| {
+
+            debug.print("Deinit items: {s}\n", .{ item });
+            allocator.free(item);
+        }
+    }
+};
+
+pub const SynchronousData = struct {
+    // shared error state between encoding and camera threads in order for them
+    // to inform one another that they've failed. (Ex: We don't want to get
+    // stuck in an infinite encoding loop for a program where the camera has
+    // crashed )
+    sync_error : ?anyerror = null,
+    mutex: std.Io.Mutex = .init,
+    camera_data : CameraData = .{},
+    upload_data : UploadData = .{},
+};
+

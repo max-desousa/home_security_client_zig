@@ -4,6 +4,12 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const mod_c_imports = b.createModule(.{
+        .root_source_file = b.path("src/imports/c_imports.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const mod_debug = b.createModule(.{
         .root_source_file = b.path("src/debug/root_debug.zig"),
         .target = target,
@@ -16,21 +22,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const mod_time = b.createModule(.{
-        .root_source_file = b.path("src/time_date/root_time.zig"),
-        .target = target,
-        .optimize = optimize,
-        .imports = &.{
-            .{ .name = "config", .module = mod_config },
-        },
-    });
-
-    const mod_c_imports = b.createModule(.{
-        .root_source_file = b.path("src/imports/c_imports.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
     const mod_sync_data = b.createModule(.{
         .root_source_file = b.path("src/global/sync_data.zig"),
         .target = target,
@@ -38,6 +29,26 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "c_imports", .module = mod_c_imports },
             .{ .name = "debug", .module = mod_debug },
+        },
+    });
+
+    const mod_net = b.createModule(.{
+        .root_source_file = b.path("src/net/root_net.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "sync_data", .module = mod_sync_data },
+            .{ .name = "debug", .module = mod_debug },
+            .{ .name = "config", .module = mod_config },
+        },
+    });
+
+    const mod_time = b.createModule(.{
+        .root_source_file = b.path("src/time_date/root_time.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "config", .module = mod_config },
         },
     });
 
@@ -76,6 +87,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "encoding", .module = mod_encoding },
             .{ .name = "debug", .module = mod_debug },
             .{ .name = "config", .module = mod_config },
+            .{ .name = "net", .module = mod_net },
         },
     });
 
