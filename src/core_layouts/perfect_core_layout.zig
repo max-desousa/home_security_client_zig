@@ -6,6 +6,7 @@ const debug = @import("debug");
 const sync = @import("sync_data");
 const config = @import("config");
 const net = @import("net");
+const sys = @import("sys");
 
 const SIGNALS = [_]i32{
     std.os.SIG.INT,
@@ -51,4 +52,5 @@ pub fn perfect_core_layout() !void {
     try group.concurrent(io, encoding.encoding_thread, .{&sync_data, allocator, io });
     try group.concurrent(io, camera.infinite_capture, .{&camera_obj, io, &sync_data});
     try group.concurrent(io, net.upload_thread, .{ allocator, io, &sync_data });
+    try group.concurrent(io, sys.file_cleanup_thread, .{ io });
 }

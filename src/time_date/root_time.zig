@@ -241,9 +241,10 @@ pub fn is_time_in_current_window(io : std.Io, file_name: []const u8) !bool {
 
     const nullable_period_cut = std.mem.cutLast(u8, file_name, ".");
     const period_cut = nullable_period_cut orelse return error.BadFileNameNoPeriod;
-    const nullable_dash_cut = std.mem.cutLast(u8, period_cut.@"0", "-");
-    const dash_cut = nullable_dash_cut orelse return error.BadFileNameNoDash;
-    const file_name_window_string = dash_cut.@"1";
+    //const nullable_dash_cut = std.mem.cutLast(u8, period_cut.@"0", "-");
+    //const dash_cut = nullable_dash_cut orelse return error.BadFileNameNoDash;
+    //const file_name_window_string = dash_cut.@"1";
+    const file_name_window_string = period_cut.@"0";
 
     // Create epoch object for current time (can err due to posix call)
     const raw_current_epoch_sec = try get_current_epoch_sec(io, config.get_utc_offset_seconds());

@@ -49,7 +49,7 @@ pub fn encoding_thread(
         defer allocator.free(file_name_window);
 
         var file_name_buffer : [256]u8 = undefined;
-        const file_name = std.fmt.bufPrintSentinel(&file_name_buffer, "{s}-{s}.ts", .{config.get_camera_name(), file_name_window}, 0) catch {
+        const file_name = std.fmt.bufPrintSentinel(&file_name_buffer, "{s}.ts", .{file_name_window}, 0) catch {
             set_error(io, sync_data, sync.ThreadingErrors.EncoderCouldNotGenerateFilename);
             return;
         };

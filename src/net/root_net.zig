@@ -61,24 +61,13 @@ fn upload_video(
     var client :std.http.Client = .{ .allocator = allocator, .io = io };
     defer client.deinit();
 
-    const file : std.Io.File = try std.Io.Dir.openFile(std.Io.Dir.cwd(), io, path, .{});
+    var file : std.Io.File = try std.Io.Dir.openFile(std.Io.Dir.cwd(), io, path, .{});
     defer file.close(io);
 
     //Get file length in bytes
     const file_stat = try std.Io.File.stat(file, io);
     const file_length = file_stat.size;
 
-    //Here we'll get the time/date portion of the filename - this is what the
-    //server will save the file as under a folder named after the camera.
-    const nullable_first_cut = std.mem.cutLast(u8, path, "-");
-    const first_cut = nullable_first_cut.?;
-    const nullable_second_cut = std.mem.cutLast(u8, first_cut.@"1", ".");
-    const second_cut = nullable_second_cut.?;
-
-    // Create reader for transferring video contents
-    var chunk_buffer : [4096]u8 = undefined;
-    var file_reader = file.reader(io, &chunk_buffer);
-    
     var buffer_for_uri : [512]u8 = undefined;
     const uri_slice = try std.fmt.bufPrint(
         &buffer_for_uri, 
@@ -97,15 +86,44 @@ fn upload_video(
 
     req.transfer_encoding = .{ .content_length = file_length };
 
-    const extra_headers : [1]std.http.Header = .{
-        .{ .name = "FILE_NAME", .value = second_cut.@"0" },
-    };
-    req.extra_headers = &extra_headers;
-
     //All headers must be complete by this point in time. 
+    try write_raw_file_content_bytes_to_stream(
+        io,
+        &file,
+        &req,
+    );
 
-    var body_buffer : [4096]u8 = undefined;
-    var body_writer = try req.sendBodyUnflushed(&body_buffer);
+    var buffer_for_response : [4096]u8 = undefined;
+    var response = req.receiveHead(&buffer_for_response) catch |err| {
+        std.log.err("Receive head on response errored out: {any}\n", .{ err });
+        @panic("Error in receiving response");
+    };
+
+    if (.ok == response.head.status) {
+        std.log.err("TODO: Mark video for deletion\n", .{});
+    }
+    else {
+        @panic("TBD: Implement handling of upload error");
+    }
+}
+
+
+//******************************************************************************
+// Function: 
+//
+// Description: 
+//******************************************************************************
+fn write_raw_file_content_bytes_to_stream (
+    io : std.Io,
+    file : *std.Io.File,
+    req : *std.http.Client.Request,
+) !void {
+    // Create reader for transferring video contents
+    var buffer_for_file_reader : [4096]u8 = undefined;
+    var file_reader = file.reader(io, &buffer_for_file_reader);
+
+    var buffer_for_body_writer : [4096]u8 = undefined;
+    var body_writer = try req.sendBodyUnflushed(&buffer_for_body_writer);
     defer body_writer.end() catch {};
 
     while (file_reader.interface.fillMore()) {
