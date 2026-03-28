@@ -2,6 +2,7 @@ const std = @import("std");
 const sync_data = @import("sync_data");
 const debug = @import("debug");
 const config = @import("config");
+const sys = @import("sys");
 
 pub fn upload_thread(
     allocator : std.mem.Allocator,
@@ -10,26 +11,60 @@ pub fn upload_thread(
 ) !void {
     while (null == shared_data.sync_error) {
 
-        if (shared_data.upload_data.file_list.items.len > 0) {
-            shared_data.upload_data.mutex.lock(io) catch { continue; };
-            const last_index = shared_data.upload_data.file_list.items.len - 1;
-            const file_name = shared_data.upload_data.file_list.items[last_index];
-            shared_data.upload_data.mutex.unlock(io);
-            const upload_result = upload_video(allocator, io, file_name);
-            if (upload_result) {
-                //What do if popping the successfully uploaded file errors out?
-                //The only thing that can error out is locking the mutex...
-                //Only error path is due to mutex being cancelable.
-                shared_data.upload_data.pop_file(allocator, io) catch {};
-            }
-            else |err| {
-                debug.print("Error Uploading video:\n", .{});
-                debug.print("\tError: {any}\n", .{ err });
-                debug.print("\tTrying upload again...\n", .{});
-                std.Io.sleep(io, .fromSeconds(@intCast(config.get_config_video_duration() * 2)), .real) catch { continue; };
+        const iterable_dir = std.Io.Dir.openDir(
+            .cwd(), 
+            io, 
+            sys.MAIN_VIDEO_FOLDER,
+            .{
+                .iterate = true,
+                .follow_symlinks = false,
+            },
+        ) catch @panic("TBD - what do I do when folder cannot be opened?");
+
+        var walker = std.Io.Dir.walk(iterable_dir, allocator) catch @panic("TBD - what do I do when walker won't initialize?");
+        defer walker.deinit();
+
+        std.debug.print("Starting list of detected files\n", .{});
+
+        while (walker.next(io)) |nullable_entry| {
+            const entry = nullable_entry orelse @panic("Null entry");
+            if (.file != entry.kind) {
                 continue;
             }
+            if (std.mem.find(u8, entry.path, sys.FOLDER_FOR_ALREADY_ARCHIVED_FILES)) |_| {
+                continue;
+            }
+            std.debug.print("nullable_entry.basename = {s}\n", .{entry.basename});
+            std.debug.print("nullable_entry.path = {s}\n", .{entry.path});
+            std.debug.print("nullable_entry.kind = {any}\n", .{ entry.kind });
         }
+        else |_| {
+            @panic("TBD - what do I do when the iterator fails?");
+        }
+        std.debug.print("Done printing list of detected files\n", .{});
+
+        //if (shared_data.upload_data.file_list.items.len > 0) {
+        //    shared_data.upload_data.mutex.lock(io) catch { continue; };
+        //    const last_index = shared_data.upload_data.file_list.items.len - 1;
+        //    const file_name = shared_data.upload_data.file_list.items[last_index];
+        //    shared_data.upload_data.mutex.unlock(io);
+        //    const upload_result = upload_video(allocator, io, file_name);
+        //    if (upload_result) {
+        //        //What do if popping the successfully uploaded file errors out?
+        //        //The only thing that can error out is locking the mutex...
+        //        //Only error path is due to mutex being cancelable.
+        //        shared_data.upload_data.pop_file(allocator, io) catch {};
+        //    }
+        //    else |err| {
+        //        debug.print("Error Uploading video:\n", .{});
+        //        debug.print("\tError: {any}\n", .{ err });
+        //        debug.print("\tTrying upload again...\n", .{});
+        //        std.Io.sleep(io, .fromSeconds(@intCast(config.get_config_video_duration() * 2)), .real) catch { continue; };
+        //        continue;
+        //    }
+        //}
+
+        std.Io.sleep(io, .fromSeconds(30), .real) catch continue;
     }
     _ = std.Io.sleep(io, .fromSeconds(@intCast(config.get_config_video_duration() * 2)), .real) catch {};
     debug.print("Printing list before final cleanup...\n", .{});

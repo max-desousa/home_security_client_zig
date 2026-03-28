@@ -49,6 +49,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "sync_data", .module = mod_sync_data },
             .{ .name = "debug", .module = mod_debug },
             .{ .name = "config", .module = mod_config },
+            .{ .name = "sys", .module = mod_sys },
         },
     });
 
