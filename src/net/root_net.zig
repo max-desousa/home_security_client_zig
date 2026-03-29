@@ -27,7 +27,7 @@ pub fn upload_thread(
         std.debug.print("Starting list of detected files\n", .{});
 
         while (walker.next(io)) |nullable_entry| {
-            const entry = nullable_entry orelse @panic("Null entry");
+            const entry = nullable_entry orelse break;
             if (.file != entry.kind) {
                 continue;
             }
