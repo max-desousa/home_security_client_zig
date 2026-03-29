@@ -8,7 +8,7 @@ pub fn upload_thread(
     allocator : std.mem.Allocator,
     io : std.Io,
     shared_data : *sync_data.SynchronousData
-) !void {
+) void {
     while (null == shared_data.sync_error) {
 
         const iterable_dir = std.Io.Dir.openDir(
@@ -34,56 +34,32 @@ pub fn upload_thread(
             if (std.mem.find(u8, entry.path, sys.FOLDER_FOR_ALREADY_ARCHIVED_FILES)) |_| {
                 continue;
             }
-            std.debug.print("nullable_entry.basename = {s}\n", .{entry.basename});
-            std.debug.print("nullable_entry.path = {s}\n", .{entry.path});
-            std.debug.print("nullable_entry.kind = {any}\n", .{ entry.kind });
+
+            var buffer_for_adjusted_path : [512]u8 = undefined;
+            const adjusted_path = adjust_path_due_to_iterator(
+                &buffer_for_adjusted_path,
+                entry.path,
+            ) catch {
+                continue;
+            };
+
+            upload_video(allocator, io, adjusted_path) catch {
+                @panic("TBD - what do I want to do when \"upload_video\" fails?");
+            };
+
+            move_file_to_archived_folder(io, adjusted_path) catch {
+                @panic("TBD - what do I want to do when \"move_file_to_archived_folder\" fails?");
+            };
         }
         else |_| {
             @panic("TBD - what do I do when the iterator fails?");
         }
         std.debug.print("Done printing list of detected files\n", .{});
 
-        //if (shared_data.upload_data.file_list.items.len > 0) {
-        //    shared_data.upload_data.mutex.lock(io) catch { continue; };
-        //    const last_index = shared_data.upload_data.file_list.items.len - 1;
-        //    const file_name = shared_data.upload_data.file_list.items[last_index];
-        //    shared_data.upload_data.mutex.unlock(io);
-        //    const upload_result = upload_video(allocator, io, file_name);
-        //    if (upload_result) {
-        //        //What do if popping the successfully uploaded file errors out?
-        //        //The only thing that can error out is locking the mutex...
-        //        //Only error path is due to mutex being cancelable.
-        //        shared_data.upload_data.pop_file(allocator, io) catch {};
-        //    }
-        //    else |err| {
-        //        debug.print("Error Uploading video:\n", .{});
-        //        debug.print("\tError: {any}\n", .{ err });
-        //        debug.print("\tTrying upload again...\n", .{});
-        //        std.Io.sleep(io, .fromSeconds(@intCast(config.get_config_video_duration() * 2)), .real) catch { continue; };
-        //        continue;
-        //    }
-        //}
-
         std.Io.sleep(io, .fromSeconds(30), .real) catch continue;
     }
-    _ = std.Io.sleep(io, .fromSeconds(@intCast(config.get_config_video_duration() * 2)), .real) catch {};
-    debug.print("Printing list before final cleanup...\n", .{});
-    for (shared_data.upload_data.file_list.items) |item| {
-        debug.print("\t{s}\n", .{ item });
-    }
-    debug.print("Final attemmpt to upload before crashing program from thread error...\n", .{});
-    for (shared_data.upload_data.file_list.items) |item| {
-        upload_video(allocator, io, item) catch {
-            debug.print("******** Error uploading to the server **********", .{});
-        };
-    }
-    debug.print("Printing list after final cleanup...\n", .{});
-    for (shared_data.upload_data.file_list.items) |item| {
-        debug.print("\t{s}\n", .{ item });
-    }
+
     debug.print("Ending upload thread due to encoder error: {any}\n", .{ shared_data.sync_error });
-    shared_data.upload_data.deinit(allocator);
-    shared_data.upload_data.file_list.deinit(allocator);
 }
 
 fn upload_video(
@@ -104,16 +80,7 @@ fn upload_video(
     const file_length = file_stat.size;
 
     var buffer_for_uri : [512]u8 = undefined;
-    const uri_slice = try std.fmt.bufPrint(
-        &buffer_for_uri, 
-        "http://{s}:{d}/archival/{s}/{s}", 
-        .{
-            config.get_server_address(), 
-            config.get_server_port(),
-            config.get_camera_name(),
-            path,
-        },
-    );
+    const uri_slice = try generate_uri_string_for_archival(&buffer_for_uri, path);
 
     const uri = try std.Uri.parse(uri_slice);
     var req = try client.request(.POST, uri, .{});
@@ -170,4 +137,119 @@ fn write_raw_file_content_bytes_to_stream (
             return err;
         }
     }
+}
+
+
+//******************************************************************************
+// Function: 
+//
+// Description: 
+//******************************************************************************
+fn move_file_to_archived_folder(
+    io : std.Io,
+    path : []const u8,
+) !void {
+
+    const base_path, const sub_path = std.mem.cut(u8, path, sys.FOLDER_FOR_FILES_TO_ARCHIVE) orelse return error.CouldNotFindFolderToReplaceInPath;
+
+    var buffer_for_moved_path : [512]u8 = undefined;
+    const new_path = try std.fmt.bufPrint(
+        &buffer_for_moved_path,
+        "{s}{s}{s}",
+        .{
+            base_path,
+            sys.FOLDER_FOR_ALREADY_ARCHIVED_FILES,
+            sub_path,
+        },
+    );
+
+    try std.Io.Dir.rename(
+        .cwd(),
+        path,
+        .cwd(),
+        new_path,
+        io, 
+    );
+}
+
+
+//******************************************************************************
+// Function: generate_uri_string_for_archival
+//
+// Description: This is a function that takes the path provided by the
+//              directory walker and creating a string that will create a
+//              string for the address that will be used for uploading a video
+//              file. 
+//
+//              This will use the path and also address the ability to upload
+//              videos that are planned for future meshing. 
+//******************************************************************************
+fn generate_uri_string_for_archival(
+    buffer : []u8, 
+    path : []const u8,
+) ![]u8 {
+    // Desired String
+    //"http://{s}:{d}/archival/{s}/{s}", 
+    //
+    //Path format:
+    //[cwd]/${sys.MAIN_VIDEO_FOLDER}/${config.get_camera_name()/[filename]}
+
+    _, const parent_folder_removed_with_prepended_slash = std.mem.cut(
+        u8,
+        path, 
+        sys.MAIN_VIDEO_FOLDER
+    ) orelse return error.FileDoesNotHavePathForMainFolder;
+
+    _, const parent_folder_removed = std.mem.cut(
+        u8,
+        parent_folder_removed_with_prepended_slash,
+        "/",
+    ) orelse return error.NoSlashPresent;
+
+    const camera_name, _ = std.mem.cut(
+        u8,
+        parent_folder_removed,
+        "/",
+    ) orelse return error.NoSlashPresent;
+
+    _, const file_name = std.mem.cutLast(u8, path, "/") orelse return error.NoFile;
+
+    
+
+    return try std.fmt.bufPrint(
+        buffer,
+        "http://{s}:{d}/archival/{s}/{s}",
+        .{
+            config.get_server_address(), 
+            config.get_server_port(),
+            camera_name,
+            file_name
+        }
+    );
+}
+
+
+//******************************************************************************
+// Function: adjust_path_due_to_iterator
+//
+// Description: When we iterate over the directory that contains all the
+//              videos, it doesnt' contain the folder that is actively being
+//              iterated. This means that the path develops an issue when
+//              trying to open files for transfer. So, we need to compensate by
+//              addressing the issue with the path string. That's what this
+//              function does. 
+//******************************************************************************
+fn adjust_path_due_to_iterator(
+    buffer : []u8,
+    malformed_path : []const u8,
+) ![:0]u8 {
+    return try std.fmt.bufPrintSentinel(
+        buffer,
+        "{s}/{s}",
+        .{
+            sys.MAIN_VIDEO_FOLDER,
+            malformed_path,
+        },
+        0,
+    );
 }

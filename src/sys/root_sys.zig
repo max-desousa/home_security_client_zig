@@ -1,7 +1,7 @@
 const std = @import("std");
 const config = @import("config");
 
-const FOLDER_FOR_FILES_TO_ARCHIVE = "ToArchive";
+pub const FOLDER_FOR_FILES_TO_ARCHIVE = "ToArchive";
 pub const FOLDER_FOR_ALREADY_ARCHIVED_FILES = "Archived";
 pub const MAIN_VIDEO_FOLDER = "Videos";
 

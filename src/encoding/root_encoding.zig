@@ -76,9 +76,6 @@ pub fn encoding_thread(
         };
 
         create_video(io, sync_data, enc_ctx, full_path_with_file_name);
-        sync_data.upload_data.push_file(allocator, io, file_name) catch {
-            debug.print("Error uploading file... how do you want to handle this?\n", .{});
-        };
     }
     debug.print("Encoding thread was ended due to encountering sync_data error: {any}\n", .{sync_data.sync_error.?});
 
