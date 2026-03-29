@@ -4,6 +4,10 @@ const config = @import("config");
 pub const FOLDER_FOR_FILES_TO_ARCHIVE = "ToArchive";
 pub const FOLDER_FOR_ALREADY_ARCHIVED_FILES = "Archived";
 pub const MAIN_VIDEO_FOLDER = "Videos";
+//pub const PATH_TO_TO_ARCHIVE_DIR = MAIN_VIDEO_FOLDER ++ std.fs.path.sep ++ FOLDER_FOR_FILES_TO_ARCHIVE;
+//pub const PATH_TO_ARCHIVED_DIR = MAIN_VIDEO_FOLDER ++ std.fs.path.sep ++ FOLDER_FOR_ALREADY_ARCHIVED_FILES;
+pub const PATH_TO_TO_ARCHIVE_DIR = MAIN_VIDEO_FOLDER ++ "/" ++ FOLDER_FOR_FILES_TO_ARCHIVE;
+pub const PATH_TO_ARCHIVED_DIR = MAIN_VIDEO_FOLDER ++ "/" ++ FOLDER_FOR_ALREADY_ARCHIVED_FILES;
 
 
 //******************************************************************************
@@ -37,9 +41,9 @@ pub fn establish_directories(
         .{ 
             MAIN_VIDEO_FOLDER,
             std.fs.path.sep,
-            config.get_camera_name(), 
-            std.fs.path.sep,
             FOLDER_FOR_FILES_TO_ARCHIVE,
+            std.fs.path.sep,
+            config.get_camera_name(), 
         }
     );
 
@@ -51,9 +55,9 @@ pub fn establish_directories(
         .{ 
             MAIN_VIDEO_FOLDER,
             std.fs.path.sep,
-            config.get_camera_name(), 
-            std.fs.path.sep,
             FOLDER_FOR_ALREADY_ARCHIVED_FILES,
+            std.fs.path.sep,
+            config.get_camera_name(), 
         }
     );
 
@@ -76,9 +80,9 @@ pub fn get_to_archive_path_for_camera(
         .{
             MAIN_VIDEO_FOLDER,
             std.fs.path.sep,
-            camera_name, 
-            std.fs.path.sep,
             FOLDER_FOR_FILES_TO_ARCHIVE,
+            std.fs.path.sep,
+            camera_name, 
         }
     );
 }
@@ -111,9 +115,9 @@ pub fn get_archived_path_for_camera(
         .{
             MAIN_VIDEO_FOLDER,
             std.fs.path.sep,
-            camera_name, 
-            std.fs.path.sep,
             FOLDER_FOR_ALREADY_ARCHIVED_FILES,
+            std.fs.path.sep,
+            camera_name, 
         }
     );
 }

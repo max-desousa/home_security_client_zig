@@ -14,7 +14,7 @@ pub fn upload_thread(
         const iterable_dir = std.Io.Dir.openDir(
             .cwd(), 
             io, 
-            sys.MAIN_VIDEO_FOLDER,
+            sys.PATH_TO_TO_ARCHIVE_DIR,
             .{
                 .iterate = true,
                 .follow_symlinks = false,
@@ -31,10 +31,6 @@ pub fn upload_thread(
             if (.file != entry.kind) {
                 continue;
             }
-            if (std.mem.find(u8, entry.path, sys.FOLDER_FOR_ALREADY_ARCHIVED_FILES)) |_| {
-                continue;
-            }
-
             if (1 < std.mem.count(u8, entry.path, ".")) {
                 continue;
             }
@@ -154,18 +150,24 @@ fn move_file_to_archived_folder(
     path : []const u8,
 ) !void {
 
-    const base_path, const sub_path = std.mem.cut(u8, path, sys.FOLDER_FOR_FILES_TO_ARCHIVE) orelse return error.CouldNotFindFolderToReplaceInPath;
+    _, const sub_path = std.mem.cut(u8, path, sys.FOLDER_FOR_FILES_TO_ARCHIVE) orelse return error.CouldNotFindFolderToReplaceInPath;
 
-    var buffer_for_moved_path : [512]u8 = undefined;
+    var buffer_for_new_path : [512]u8 = undefined;
     const new_path = try std.fmt.bufPrint(
-        &buffer_for_moved_path,
-        "{s}{s}{s}",
+        &buffer_for_new_path,
+        "{s}{s}",
         .{
-            base_path,
-            sys.FOLDER_FOR_ALREADY_ARCHIVED_FILES,
+            sys.PATH_TO_ARCHIVED_DIR,
             sub_path,
-        },
+        }
     );
+
+    const dir_path, _ = std.mem.cutLast(u8, new_path, "/") orelse return error.NoSlash;
+
+    try std.Io.Dir.createDirPath(.cwd(), io, dir_path);
+
+    std.log.debug("Provided path: {s}\n", .{ path });
+    std.log.debug("New path: {s}\n", .{ new_path });
 
     try std.Io.Dir.rename(
         .cwd(),
@@ -196,38 +198,28 @@ fn generate_uri_string_for_archival(
     //"http://{s}:{d}/archival/{s}/{s}", 
     //
     //Path format:
-    //[cwd]/${sys.MAIN_VIDEO_FOLDER}/${config.get_camera_name()/[filename]}
+    //[cwd]/${sys.MAIN_VIDEO_FOLDER}/file_state/${config.get_camera_name()/[filename]}
 
-    _, const parent_folder_removed_with_prepended_slash = std.mem.cut(
+    _, const string_camera_and_file_name = std.mem.cut(
         u8,
         path, 
-        sys.MAIN_VIDEO_FOLDER
+        sys.PATH_TO_TO_ARCHIVE_DIR
     ) orelse return error.FileDoesNotHavePathForMainFolder;
 
-    _, const parent_folder_removed = std.mem.cut(
+    const string_camera_name, const string_file_name = std.mem.cut(
         u8,
-        parent_folder_removed_with_prepended_slash,
+        string_camera_and_file_name,
         "/",
     ) orelse return error.NoSlashPresent;
-
-    const camera_name, _ = std.mem.cut(
-        u8,
-        parent_folder_removed,
-        "/",
-    ) orelse return error.NoSlashPresent;
-
-    _, const file_name = std.mem.cutLast(u8, path, "/") orelse return error.NoFile;
-
-    
 
     return try std.fmt.bufPrint(
         buffer,
-        "http://{s}:{d}/archival/{s}/{s}",
+        "http://{s}:{d}/archival{s}/{s}",
         .{
             config.get_server_address(), 
             config.get_server_port(),
-            camera_name,
-            file_name
+            string_camera_name,
+            string_file_name
         }
     );
 }
@@ -251,7 +243,7 @@ fn adjust_path_due_to_iterator(
         buffer,
         "{s}/{s}",
         .{
-            sys.MAIN_VIDEO_FOLDER,
+            sys.PATH_TO_TO_ARCHIVE_DIR,
             malformed_path,
         },
         0,
