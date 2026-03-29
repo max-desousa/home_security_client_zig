@@ -32,6 +32,7 @@ pub const ThreadingErrors = error{
     ErrorGettingCameraParams,
     DeviceDoesNotSupportFrameRateSetting,
     CameraFrameRateDoesNotMatchRequested,
+    CouldNotRenameFile,
 };
 
 pub const CameraData = struct {
@@ -88,47 +89,6 @@ pub const CameraData = struct {
 };
 
 
-pub const UploadData = struct {
-    const Self = @This();
-    mutex: std.Io.Mutex = .init,
-    file_list : std.ArrayList([:0]const u8) = .empty,
-
-    pub fn pop_file(
-        self : *Self,
-        allocator : std.mem.Allocator,
-        io : std.Io,
-    ) !void {
-        try self.mutex.lock(io);
-        defer self.mutex.unlock(io);
-
-        const nullable_popped_file = self.file_list.pop();
-
-        if (nullable_popped_file) |popped_file| {
-            allocator.free(popped_file);
-        }
-    }
-
-    pub fn push_file(
-        self : *Self, 
-        allocator : std.mem.Allocator,
-        io : std.Io,
-        file : [:0]const u8
-    ) !void {
-        const new_slice = try allocator.dupeSentinel(u8, file, 0);
-        try self.mutex.lock(io);
-        defer self.mutex.unlock(io);
-        try self.file_list.append(allocator, new_slice);
-    }
-
-    pub fn deinit(self : *Self, allocator : std.mem.Allocator) void {
-        for (self.file_list.items) |item| {
-
-            debug.print("Deinit items: {s}\n", .{ item });
-            allocator.free(item);
-        }
-    }
-};
-
 pub const SynchronousData = struct {
     // shared error state between encoding and camera threads in order for them
     // to inform one another that they've failed. (Ex: We don't want to get
@@ -137,6 +97,5 @@ pub const SynchronousData = struct {
     sync_error : ?anyerror = null,
     mutex: std.Io.Mutex = .init,
     camera_data : CameraData = .{},
-    upload_data : UploadData = .{},
 };
 

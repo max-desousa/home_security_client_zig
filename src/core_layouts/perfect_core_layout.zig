@@ -6,6 +6,7 @@ const debug = @import("debug");
 const sync = @import("sync_data");
 const config = @import("config");
 const net = @import("net");
+const sys = @import("sys");
 
 const SIGNALS = [_]i32{
     std.os.SIG.INT,
@@ -35,7 +36,15 @@ pub fn perfect_core_layout() !void {
     const io = threaded.io();
 
     // Establish/Read config file to determine specific behaviors.
-    try config.establish_config(io);
+    config.establish_config(io) catch {
+        @panic("Something went wrong with the file");
+    };
+
+    //Make sure that there is a path to store the files.
+    //The path makes cleanup simpler as we progress the project, and builds out
+    //the ability for meshed uploading in the future. (Dedicated folders for
+    //different cameras if this client is also a server)
+    try sys.establish_directories(io);
 
     // Try to create camera object (making sure system works) before starting 
     // multithreaded portion.
@@ -51,4 +60,5 @@ pub fn perfect_core_layout() !void {
     try group.concurrent(io, encoding.encoding_thread, .{&sync_data, allocator, io });
     try group.concurrent(io, camera.infinite_capture, .{&camera_obj, io, &sync_data});
     try group.concurrent(io, net.upload_thread, .{ allocator, io, &sync_data });
+    try group.concurrent(io, sys.file_cleanup_thread, .{ io });
 }

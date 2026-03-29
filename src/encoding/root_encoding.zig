@@ -5,6 +5,7 @@ const sync = @import("sync_data");
 const config = @import("config");
 const c = @import("c_imports").c;
 const time = @import("time");
+const sys = @import("sys");
 
 //##############################################################################
 // Function: encoding_thread
@@ -48,16 +49,33 @@ pub fn encoding_thread(
         };
         defer allocator.free(file_name_window);
 
-        var file_name_buffer : [256]u8 = undefined;
-        const file_name = std.fmt.bufPrintSentinel(&file_name_buffer, "{s}-{s}.ts", .{config.get_camera_name(), file_name_window}, 0) catch {
+        var file_name_buffer : [64]u8 = undefined;
+        const file_name = std.fmt.bufPrintSentinel(&file_name_buffer, "{s}.ts", .{file_name_window}, 0) catch {
             set_error(io, sync_data, sync.ThreadingErrors.EncoderCouldNotGenerateFilename);
             return;
         };
 
-        create_video(io, sync_data, enc_ctx, file_name);
-        sync_data.upload_data.push_file(allocator, io, file_name) catch {
-            debug.print("Error uploading file... how do you want to handle this?\n", .{});
+        var buffer_for_dir_only_path : [128]u8 = undefined;
+        const dir_only_path = sys.get_to_archive_path(&buffer_for_dir_only_path) catch {
+            set_error(io, sync_data, sync.ThreadingErrors.EncoderCouldNotGenerateFilename);
+            return;
         };
+        var buffer_full_path_with_file_name : [256]u8 = undefined;
+        const full_path_with_file_name = std.fmt.bufPrintSentinel(
+            &buffer_full_path_with_file_name,
+            "{s}{c}.{s}",
+            .{
+                dir_only_path,
+                std.fs.path.sep,
+                file_name,
+            },
+            0,
+        ) catch {
+            set_error(io, sync_data, sync.ThreadingErrors.EncoderCouldNotGenerateFilename);
+            return;
+        };
+
+        create_video(io, sync_data, enc_ctx, full_path_with_file_name);
     }
     debug.print("Encoding thread was ended due to encountering sync_data error: {any}\n", .{sync_data.sync_error.?});
 
@@ -267,5 +285,33 @@ fn create_video(
 
     // ----- Finalise file -----
     _ = c.av_write_trailer(@ptrCast(output_fmt_ctx));
+    const beginning, const end = std.mem.cut(u8, file_name, ".") orelse {
+        set_error(io, sync_data, sync.ThreadingErrors.CouldNotRenameFile);
+        return;
+    };
+    var buffer_for_stripping_hidden_file : [512]u8 = undefined;
+    const not_hidden_file_path = std.fmt.bufPrint(
+        &buffer_for_stripping_hidden_file,
+        "{s}{s}",
+        .{
+            beginning,
+            end,
+        }
+    ) catch |err| {
+        std.debug.print("Exiting encoding thread due to renaming issues: {any}\n", .{ err });
+        set_error(io, sync_data, sync.ThreadingErrors.CouldNotRenameFile);
+        return;
+    };
+    std.Io.Dir.rename(
+        .cwd(),
+        file_name,
+        .cwd(),
+        not_hidden_file_path,
+        io,
+    ) catch |err| {
+        std.debug.print("Exiting encoding thread due to renaming issues: {any}\n", .{ err });
+        set_error(io, sync_data, sync.ThreadingErrors.CouldNotRenameFile);
+        return;
+    };
     debug.print("Finished – output.mp4 is ready and playable!\n", .{});
 }

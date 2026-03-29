@@ -10,14 +10,23 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const mod_debug = b.createModule(.{
-        .root_source_file = b.path("src/debug/root_debug.zig"),
+    const mod_config = b.createModule(.{
+        .root_source_file = b.path("src/config/root_config.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    const mod_config = b.createModule(.{
-        .root_source_file = b.path("src/config/root_config.zig"),
+    const mod_sys = b.createModule(.{
+        .root_source_file = b.path("src/sys/root_sys.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "config", .module = mod_config },
+        },
+    });
+
+    const mod_debug = b.createModule(.{
+        .root_source_file = b.path("src/debug/root_debug.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -40,6 +49,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "sync_data", .module = mod_sync_data },
             .{ .name = "debug", .module = mod_debug },
             .{ .name = "config", .module = mod_config },
+            .{ .name = "sys", .module = mod_sys },
         },
     });
 
@@ -62,6 +72,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "c_imports", .module = mod_c_imports },
             .{ .name = "config", .module = mod_config },
             .{ .name = "time", .module = mod_time },
+            .{ .name = "sys", .module = mod_sys },
         },
     });
 
@@ -88,6 +99,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "debug", .module = mod_debug },
             .{ .name = "config", .module = mod_config },
             .{ .name = "net", .module = mod_net },
+            .{ .name = "sys", .module = mod_sys },
         },
     });
 
