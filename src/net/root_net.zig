@@ -35,6 +35,10 @@ pub fn upload_thread(
                 continue;
             }
 
+            if (1 < std.mem.count(u8, entry.path, ".")) {
+                continue;
+            }
+
             var buffer_for_adjusted_path : [512]u8 = undefined;
             const adjusted_path = adjust_path_due_to_iterator(
                 &buffer_for_adjusted_path,

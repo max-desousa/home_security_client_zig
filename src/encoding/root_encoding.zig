@@ -63,7 +63,7 @@ pub fn encoding_thread(
         var buffer_full_path_with_file_name : [256]u8 = undefined;
         const full_path_with_file_name = std.fmt.bufPrintSentinel(
             &buffer_full_path_with_file_name,
-            "{s}{c}{s}",
+            "{s}{c}.{s}",
             .{
                 dir_only_path,
                 std.fs.path.sep,
@@ -285,5 +285,33 @@ fn create_video(
 
     // ----- Finalise file -----
     _ = c.av_write_trailer(@ptrCast(output_fmt_ctx));
+    const beginning, const end = std.mem.cut(u8, file_name, ".") orelse {
+        set_error(io, sync_data, sync.ThreadingErrors.CouldNotRenameFile);
+        return;
+    };
+    var buffer_for_stripping_hidden_file : [512]u8 = undefined;
+    const not_hidden_file_path = std.fmt.bufPrint(
+        &buffer_for_stripping_hidden_file,
+        "{s}{s}",
+        .{
+            beginning,
+            end,
+        }
+    ) catch |err| {
+        std.debug.print("Exiting encoding thread due to renaming issues: {any}\n", .{ err });
+        set_error(io, sync_data, sync.ThreadingErrors.CouldNotRenameFile);
+        return;
+    };
+    std.Io.Dir.rename(
+        .cwd(),
+        file_name,
+        .cwd(),
+        not_hidden_file_path,
+        io,
+    ) catch |err| {
+        std.debug.print("Exiting encoding thread due to renaming issues: {any}\n", .{ err });
+        set_error(io, sync_data, sync.ThreadingErrors.CouldNotRenameFile);
+        return;
+    };
     debug.print("Finished – output.mp4 is ready and playable!\n", .{});
 }

@@ -32,6 +32,7 @@ pub const ThreadingErrors = error{
     ErrorGettingCameraParams,
     DeviceDoesNotSupportFrameRateSetting,
     CameraFrameRateDoesNotMatchRequested,
+    CouldNotRenameFile,
 };
 
 pub const CameraData = struct {
