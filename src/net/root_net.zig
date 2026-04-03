@@ -10,6 +10,7 @@ pub fn upload_thread(
     shared_data : *sync_data.SynchronousData
 ) void {
     while (null == shared_data.sync_error) {
+        std.log.debug("Upload thread running next iteration\n", .{});
 
         const iterable_dir = std.Io.Dir.openDir(
             .cwd(), 

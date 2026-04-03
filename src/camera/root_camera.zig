@@ -39,7 +39,7 @@ private_head: usize = 0,
 //              There needs to be a consumer - in the current application this
 //              would be the encoder thread. 
 //******************************************************************************
-pub fn infinite_capture(self: *Camera, io : std.Io, sync_data: *sync.SynchronousData) void {
+pub fn infinite_capture(self: *Camera, io : std.Io, sync_data: *sync.SynchronousData, shutdown_flag : *std.atomic.Value(bool)) void {
     // Point the buffers (slice) for sync data to the camera's
     // allocated/memory-mapped v4l buffers. 
     sync_data.camera_data.buffers = self.buffers;
@@ -55,6 +55,7 @@ pub fn infinite_capture(self: *Camera, io : std.Io, sync_data: *sync.Synchronous
             };
             defer sync_data.mutex.unlock(io);
             sync_data.sync_error = sync.ThreadingErrors.CameraCouldNotStart;
+            shutdown_flag.store(true, .release);
         }
         return;
     };
@@ -98,6 +99,7 @@ pub fn infinite_capture(self: *Camera, io : std.Io, sync_data: *sync.Synchronous
                 };
                 defer sync_data.mutex.unlock(io);
                 sync_data.sync_error = sync.ThreadingErrors.CameraCouldNotCaptureFrame;
+                shutdown_flag.store(true, .release);
             }
             return;
         };
@@ -114,6 +116,7 @@ pub fn infinite_capture(self: *Camera, io : std.Io, sync_data: *sync.Synchronous
             };
             defer sync_data.mutex.unlock(io);
             sync_data.sync_error = sync.ThreadingErrors.CameraRunOutOfBuffers;
+            shutdown_flag.store(true, .release);
             debug.print("Camera ran out of buffers... aborting\n", .{});
             return;
         };
