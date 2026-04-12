@@ -29,11 +29,11 @@ pub fn file_cleanup_thread(
 ) std.Io.Cancelable!void {
     while (true) {
         try io.checkCancel();
-        std.log.debug("Checking shutdown flag\n", .{});
+        //std.log.debug("Checking shutdown flag\n", .{});
         if (shutdown_flag.load(.acquire)) {
             return;
         }
-        std.log.debug("Shutdown flag not set\n", .{});
+        //std.log.debug("Shutdown flag not set\n", .{});
         // So many functions are convenient to `try`... and if the thread is
         // capable of failing at all... I want the whole group to close...
         // Since io.concurrent has restrictions on it's ability to return

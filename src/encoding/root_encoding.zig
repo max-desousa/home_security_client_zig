@@ -82,6 +82,7 @@ pub fn encoding_thread(
             enc_ctx, 
             full_path_with_file_name,
             frames_to_encode,
+            frames_to_requeue,
             frame_data,
         ) catch break;
     }
@@ -133,7 +134,8 @@ fn create_video(
     io : std.Io,
     encoder_ctx : *c.struct_AVCodecContext,
     file_name : [:0]const u8,
-    frame_queue : *std.Io.Queue(usize),
+    queue_of_frames_to_encode: *std.Io.Queue(usize),
+    queue_of_frames_to_requeue: *std.Io.Queue(usize),
     cached_frames : []camera.MemoryMappedFrame,
 ) !void {
     var nullable_output_fmt_ctx : ?*c.struct_AVFormatContext = null;
@@ -185,8 +187,10 @@ fn create_video(
             };
         }
 
-        const buf_idx = try frame_queue.getOne(io);
-        const buffer_index = buf_idx;
+        const buffer_index = try queue_of_frames_to_encode.getOne(io);
+        defer queue_of_frames_to_requeue.putOne(io, buffer_index) catch {
+            queue_of_frames_to_requeue.close(io);
+        };
 
         // ----- Raw YUYV frame -----
         var src_frame : *c.struct_AVFrame = c.av_frame_alloc() orelse { 

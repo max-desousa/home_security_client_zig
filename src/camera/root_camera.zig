@@ -65,7 +65,7 @@ pub fn infinite_capture(
             return;
         };
         for (0..number_of_frames_to_free) |i| {
-            self.release_buffer(@intCast(i)) catch |err| {
+            self.release_buffer(@intCast(frames_to_free[i])) catch |err| {
                 std.log.err("Error freeing the buffer and returning it to v4l. Closing comms with encoder and aborting camera thread. (error: {any})\n", .{ err });
                 frames_to_encode.close(io);
                 return;
