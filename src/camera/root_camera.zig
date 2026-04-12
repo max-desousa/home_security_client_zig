@@ -55,7 +55,7 @@ pub fn infinite_capture(
     while (true) {
         //returning all possible frames to v4l after they've been encoded
         {
-        var frames_to_free : [self.frame_cache.len]usize = undefined;
+        var frames_to_free : [32]usize = undefined;
         const number_of_frames_to_free = frames_to_requeue.get(
             io, 
             &frames_to_free,
@@ -415,12 +415,12 @@ fn initialize_mmap(self: *Camera) !void {
 //******************************************************************************
 fn start_capturing(self: Camera) !void {
     if ((null == self.file_descriptor) or
-        (2 > self.buffers.len)) {
+        (2 > self.frame_cache.len)) {
         return error.BadStructInstance;
     }
 
     // Go through and queue all the buffers for v4l to store data in. 
-    for (0..self.buffers.len) |index| {
+    for (0..self.frame_cache.len) |index| {
         var buf: c.struct_v4l2_buffer = std.mem.zeroes(c.struct_v4l2_buffer);
 
         buf.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -463,9 +463,9 @@ pub fn capture_single_frame(self: Camera) !?u8 {
 
     debug.print("Updating camera data for recent capture\n:", .{});
     debug.print("\tUpdating buffer {d}'s bytes used (val = {d})...\n", .{ buf.index, buf.bytesused });
-    self.buffers[buf.index].bytes_used = buf.bytesused;
+    self.frame_cache[buf.index].bytes_used = buf.bytesused;
     //debug.print("\tUpdating buffer {d}'s timestamp...\n", .{buf.index});
-    self.buffers[buf.index].time_stamp = buf.timestamp;
+    self.frame_cache[buf.index].time_stamp = buf.timestamp;
     debug.print("Just aquired timestamp: {d}.{d}\n", .{buf.timestamp.tv_sec, buf.timestamp.tv_usec});
 
     debug.print("Sending Frame data for encoding...\n", .{});
