@@ -3,13 +3,6 @@ const c = @import("c_imports").c;
 const debug = @import("debug");
 
 //Buffer used by cameras.
-pub const CameraBuffer = struct {
-    start: *anyopaque,
-    length: u32,
-    bytes_used: u32 = 0,
-    time_stamp: c.struct_timeval = std.mem.zeroes(c.struct_timeval),
-    sequence: u32 = 0,
-};
 
 pub const ThreadingErrors = error{
     CameraCouldNotStart,
@@ -43,7 +36,6 @@ pub const CameraData = struct {
     // the data to. (This is allocated in the camera threading. (Not fixed size
     // as this should have kernel influence and we want the same number of
     // buffers as we'll get with our ioctl request)
-    buffers: []CameraBuffer = undefined,
     // List of buffer indices for frame buffers ready to be encoded.
     // stored in the order that the encoder needs to send them to the video. 
     buffers_ready_to_encode: [BUFFER_SIZE]u8 = std.mem.zeroes([BUFFER_SIZE]u8),

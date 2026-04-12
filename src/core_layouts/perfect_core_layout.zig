@@ -58,7 +58,7 @@ pub fn perfect_core_layout() !void {
     var sync_data: sync.SynchronousData = .{};
     var shutdown_flag : std.atomic.Value(bool) = .init(false);
 
-    try group.concurrent(io, encoding.encoding_thread, .{&sync_data, allocator, io });
+    try group.concurrent(io, encoding.encoding_thread, .{ io, allocator, *camera_obj.frame_cache });
     try group.concurrent(io, camera.infinite_capture, .{&camera_obj, io, &sync_data, &shutdown_flag});
     try group.concurrent(io, net.upload_thread, .{ allocator, io, &sync_data });
     if (.NoDeletions != config.get_cleanup_stategy()) {

@@ -6,24 +6,22 @@ const sync = @import("sync_data");
 const c = @import("c_imports").c;
 const config = @import("config");
 
-const SetupState = enum {
-    Naked,
-    DeviceNameKnown,
-    DeviceNameConfirmed,
-    DeviceOpened,
-    DeviceVideoSupportConfirmed,
-    DeviceCropCapSet,
-    DeviceVideoConditionsSet,
-    DeviceMemorySetup,
-    DeviceBuffersQueued,
+pub const MemoryMappedFrame = struct {
+    //Memory Mapped address on initialization of the camera object
+    start_address: *anyopaque,
+    //Maximum size allocated to the frame buffer
+    max_length: u32,
+    //Number of bytes used for the current frame
+    bytes_used: u32 = 0,
+    //Timestamp for the frame to assist encoding
+    //If there is lag, the timestamp should help stretch frames for smoother video
+    time_stamp: c.struct_timeval = std.mem.zeroes(c.struct_timeval),
 };
 
 file_descriptor: ?c_int,
 device_name: ?[*:0]const u8,
 allocator: std.mem.Allocator,
-buffers: []sync.CameraBuffer = &.{},
-n_buffers: u8 = undefined,
-private_head: usize = 0,
+frame_cache: []MemoryMappedFrame = &.{},
 
 
 //******************************************************************************
@@ -39,68 +37,49 @@ private_head: usize = 0,
 //              There needs to be a consumer - in the current application this
 //              would be the encoder thread. 
 //******************************************************************************
-pub fn infinite_capture(self: *Camera, io : std.Io, sync_data: *sync.SynchronousData, shutdown_flag : *std.atomic.Value(bool)) void {
-    // Point the buffers (slice) for sync data to the camera's
-    // allocated/memory-mapped v4l buffers. 
-    sync_data.camera_data.buffers = self.buffers;
-
+pub fn infinite_capture(
+    self: *Camera, 
+    io : std.Io, 
+    frames_to_encode : *std.Io.Queue(usize),
+    frames_to_requeue : *std.Io.Queue(usize),
+) void {
     // Queue all buffers and start stream.
     self.start_capturing() catch |err| {
         debug.print("There was an error starting the capturing of frames with the camera...\n", .{});
         debug.print("\tError code: {any}\n", .{err});
-        {
-            sync_data.mutex.lock(io) catch |inner_err| {
-                debug.print("Failed to lock mutex due to error: {any}\n", .{inner_err});
-                return;
-            };
-            defer sync_data.mutex.unlock(io);
-            sync_data.sync_error = sync.ThreadingErrors.CameraCouldNotStart;
-            shutdown_flag.store(true, .release);
-        }
+        frames_to_encode.close(io);
         return;
     };
 
     // infintely capture frames. 
     while (true) {
-        // Check for errors in any of the related threads to see if we should
-        // abort capturing frames (and end the application)
-        if (null != sync_data.sync_error) {
-            debug.print("External error - closing camera thread...\n", .{});
-            debug.print("\tExternal error was: {any}\n", .{sync_data.sync_error.?});
+        //returning all possible frames to v4l after they've been encoded
+        {
+        var frames_to_free : [self.frame_cache.len]usize = undefined;
+        const number_of_frames_to_free = frames_to_requeue.get(
+            io, 
+            &frames_to_free,
+            0
+        ) catch |err| {
+            std.log.err("Aborting camera capture logic due to encoder closing communication: {any}\n", .{ err });
             return;
-        }
-
-        // Look to see if there are any buffers that can be released back to
-        // the camera?
-        if (0 != sync_data.camera_data.free_flags.count()) {
-            sync_data.mutex.lock(io) catch |inner_err| {
-                debug.print("Failed to lock mutex due to error: {any}\n", .{inner_err});
+        };
+        for (0..number_of_frames_to_free) |i| {
+            self.release_buffer(@intCast(i)) catch |err| {
+                std.log.err("Error freeing the buffer and returning it to v4l. Closing comms with encoder and aborting camera thread. (error: {any})\n", .{ err });
+                frames_to_encode.close(io);
                 return;
             };
-            defer sync_data.mutex.unlock(io);
-            while (sync_data.camera_data.free_flags.findFirstSet()) |num| {
-                sync_data.camera_data.free_flags.unset(num);
-                self.release_buffer(@intCast(num)) catch |err| {
-                    debug.print("Error Freeing buffer...\n", .{});
-                    debug.print("\tError code: {any}\n", .{err});
-                    break;
-                };
-            }
         }
+        }
+
 
         // Attempt to capture / check if next frame is available. 
         const nullable_frame_captured = self.capture_single_frame() catch |err| {
             debug.print("Error capturing a frame from the camera...\n", .{});
             debug.print("\tError received was: {any}\n", .{err});
-            {
-                sync_data.mutex.lock(io) catch |inner_err| {
-                    debug.print("Failed to lock mutex due to error: {any}\n", .{inner_err});
-                    return;
-                };
-                defer sync_data.mutex.unlock(io);
-                sync_data.sync_error = sync.ThreadingErrors.CameraCouldNotCaptureFrame;
-                shutdown_flag.store(true, .release);
-            }
+            debug.print("\n\tClosing comms with encoder and ending camera infinite capturing\n", .{});
+            frames_to_encode.close(io);
             return;
         };
 
@@ -109,15 +88,10 @@ pub fn infinite_capture(self: *Camera, io : std.Io, sync_data: *sync.Synchronous
         const frame_captured = nullable_frame_captured orelse continue;
 
         // add buffer to list to encode
-        sync_data.camera_data.push(io, frame_captured) catch {
-            sync_data.mutex.lock(io) catch |inner_err| {
-                debug.print("Failed to lock mutex due to error: {any}\n", .{inner_err});
-                return;
-            };
-            defer sync_data.mutex.unlock(io);
-            sync_data.sync_error = sync.ThreadingErrors.CameraRunOutOfBuffers;
-            shutdown_flag.store(true, .release);
-            debug.print("Camera ran out of buffers... aborting\n", .{});
+        frames_to_encode.putOne(io, @intCast(frame_captured)) catch |err| {
+            debug.print("Issue detected giving frame index to encoder for transfer: {any}\n", .{ err });
+            debug.print("Closing queue (probably redundant) and aborting camera capture...\n", .{});
+            frames_to_encode.close(io);
             return;
         };
     }
@@ -153,8 +127,8 @@ pub fn deinit(self: *Camera) void {
         self.file_descriptor = null;
     }
 
-    if (0 < self.buffers.len) {
-        self.allocator.free(self.buffers);
+    if (0 < self.frame_cache.len) {
+        self.allocator.free(self.frame_cache);
     }
 }
 
@@ -392,8 +366,8 @@ fn initialize_mmap(self: *Camera) !void {
         return error.InsufficientBufferMemory;
     }
 
-    self.buffers = try self.allocator.alloc(sync.CameraBuffer, req.count);
-    errdefer self.allocator.free(self.buffers);
+    self.frame_cache = try self.allocator.alloc(MemoryMappedFrame, req.count);
+    errdefer self.allocator.free(self.frame_cache);
 
     for (0..req.count) |i| {
         var query_buf: c.struct_v4l2_buffer = std.mem.zeroes(c.struct_v4l2_buffer);
@@ -425,9 +399,9 @@ fn initialize_mmap(self: *Camera) !void {
             return error.MmapFailed;
         }
 
-        self.buffers[i] = .{
-            .start = start,
-            .length = length,
+        self.frame_cache[i] = .{
+            .start_address = start,
+            .max_length = length,
         };
     }
 }
@@ -493,8 +467,6 @@ pub fn capture_single_frame(self: Camera) !?u8 {
     //debug.print("\tUpdating buffer {d}'s timestamp...\n", .{buf.index});
     self.buffers[buf.index].time_stamp = buf.timestamp;
     debug.print("Just aquired timestamp: {d}.{d}\n", .{buf.timestamp.tv_sec, buf.timestamp.tv_usec});
-    debug.print("\tUpdating buffer {d}'s sequence...\n", .{buf.index});
-    self.buffers[buf.index].sequence = buf.sequence;
 
     debug.print("Sending Frame data for encoding...\n", .{});
     return @intCast(buf.index);

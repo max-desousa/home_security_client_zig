@@ -62,6 +62,18 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const mod_camera = b.createModule(.{
+        .root_source_file = b.path("src/camera/root_camera.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "sync_data", .module = mod_sync_data },
+            .{ .name = "debug", .module = mod_debug },
+            .{ .name = "c_imports", .module = mod_c_imports },
+            .{ .name = "config", .module = mod_config },
+        },
+    });
+
     const mod_encoding = b.createModule(.{
         .root_source_file = b.path("src/encoding/root_encoding.zig"),
         .target = target,
@@ -73,18 +85,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "config", .module = mod_config },
             .{ .name = "time", .module = mod_time },
             .{ .name = "sys", .module = mod_sys },
-        },
-    });
-
-    const mod_camera = b.createModule(.{
-        .root_source_file = b.path("src/camera/root_camera.zig"),
-        .target = target,
-        .optimize = optimize,
-        .imports = &.{
-            .{ .name = "sync_data", .module = mod_sync_data },
-            .{ .name = "debug", .module = mod_debug },
-            .{ .name = "c_imports", .module = mod_c_imports },
-            .{ .name = "config", .module = mod_config },
+            .{ .name = "camera", .module = mod_camera },
         },
     });
 

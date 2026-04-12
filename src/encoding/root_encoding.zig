@@ -6,6 +6,7 @@ const config = @import("config");
 const c = @import("c_imports").c;
 const time = @import("time");
 const sys = @import("sys");
+const camera = @import("camera");
 
 //##############################################################################
 // Function: encoding_thread
@@ -14,28 +15,42 @@ const sys = @import("sys");
 //              loop for the captured frames.
 //##############################################################################
 pub fn encoding_thread(
-    sync_data: *sync.SynchronousData, 
-    allocator : std.mem.Allocator, 
     io: std.Io,
+    allocator : std.mem.Allocator, 
+    frame_data : []camera.MemoryMappedFrame,
+    frames_to_encode : *std.Io.Queue(usize),
+    frames_to_requeue : *std.Io.Queue(usize),
 ) void {
     debug.print("\tLooking for H.264 encoder...\n", .{});
 
     // Step 1: Find the H.264 encoder
     const encoder : *c.struct_AVCodec = c.avcodec_find_encoder(c.AV_CODEC_ID_H264) orelse {
-        set_error(io, sync_data, sync.ThreadingErrors.EncoderCouldNotBeFound);
+        //Error... closing comms with camera to shut that down and exiting thread
+        frames_to_requeue.close(io);
         return;
     };
 
     // Step 2: Set up the encoder context
     var enc_ctx : *c.struct_AVCodecContext = set_encoder_context(encoder) orelse {
-        set_error(io, sync_data, sync.ThreadingErrors.EncoderCouldNotSetContext);
+        //Error... closing comms with camera to shut that down and exiting thread
+        frames_to_requeue.close(io);
         return;
     };
     defer c.avcodec_free_context(@ptrCast(&enc_ctx));
 
     // Step 3: Open the encoder (verify paramters don't cause issues)
     if (c.avcodec_open2(@ptrCast(enc_ctx), encoder, null) < 0) {
-        set_error(io, sync_data, sync.ThreadingErrors.EncoderCouldNotOpenCodec);
+        //Error... closing comms with camera to shut that down and exiting thread
+        frames_to_requeue.close(io);
+        return;
+    }
+
+    while (frames_to_encode.getOne(io)) |frame_index| {
+    }
+    else |err| {
+        std.log.err("Error finding new frame: {any}", .{ err });
+        //Error... closing comms with camera to shut that down and exiting thread
+        frames_to_requeue.close(io);
         return;
     }
 
