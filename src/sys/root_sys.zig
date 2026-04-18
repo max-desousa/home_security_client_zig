@@ -56,13 +56,12 @@ fn failable_version_of_cleanup_thread(
     allocator : std.mem.Allocator,
     io : std.Io,
 ) !void {
-    _ = &allocator;
     switch (config.get_cleanup_stategy()) {
         .DeleteArchivedImmediatelyUnprotected => {
-            try delete_archived_files(io);
+            try delete_archived_files(io, allocator);
         },
         .DeleteArchivedImmediatelyProtected, => {
-            try delete_archived_files(io);
+            try delete_archived_files(io, allocator);
         },
         .GeneralProtected => {
             @panic("TBD - cleanup strategy GeneralProtected not yet implemented");
@@ -76,8 +75,10 @@ fn failable_version_of_cleanup_thread(
 
 fn delete_archived_files(
     io : std.Io,
+    allocator : std.mem.Allocator,
 ) !void {
-    const iterable_dir = try std.Io.Dir.openDir(
+
+    const archived_dir = try std.Io.Dir.openDir(
         .cwd(),
         io,
         PATH_TO_ARCHIVED_DIR,
@@ -86,18 +87,19 @@ fn delete_archived_files(
             .follow_symlinks = false,
         }
     );
-    defer iterable_dir.close(io);
+    defer archived_dir.close(io);
 
-    var dir_iterator = std.Io.Dir.iterate(iterable_dir);
+    var dir_walker = try std.Io.Dir.walk(archived_dir, allocator);
+    defer dir_walker.deinit();
 
-    while (dir_iterator.next(io)) |nullable_entry| {
+    while (dir_walker.next(io)) |nullable_entry| {
         const entry = nullable_entry orelse break;
         switch (entry.kind) {
             .file => {
-                try std.Io.Dir.deleteFile(iterable_dir, io, entry.name);
+                try std.Io.Dir.deleteFile(archived_dir, io, entry.path);
             },
             .directory => {
-                try std.Io.Dir.deleteTree(iterable_dir, io, entry.name);
+                continue;
             },
             else => {
                 return error.InvalidObjectFoundInArchivedDir;
@@ -191,6 +193,7 @@ fn delete_archived_files(
 //******************************************************************************
 pub fn establish_directories(
     io : std.Io,
+    allocator : std.mem.Allocator,
 ) !void {
 
     var buffer_for_path_names : [512]u8 = undefined;
@@ -222,6 +225,57 @@ pub fn establish_directories(
     );
 
     try std.Io.Dir.createDirPath(.cwd(), io, path_name);
+
+    try delete_hidden_files(io, allocator);
+}
+
+
+
+//******************************************************************************
+// Function:    delete_hidden_files
+//
+// Description: This is a function that goes through and deletes all hidden files
+//              in the video directory. This is mostly helpful for development
+//              because the most common use case for hidden files persisting is
+//              a reset where the clip was compromised. 
+//
+//              The only real practical time to call this is on startup. That way
+//              your system doesn't have it's memory wasted with corrupted
+//              recordings that can't safely be cleaned by the system until
+//              they are uploaded.
+//******************************************************************************
+fn delete_hidden_files(
+    io : std.Io,
+    allocator : std.mem.Allocator,
+) !void {
+    const vid_dir = try std.Io.Dir.openDir(
+        .cwd(),
+        io,
+        MAIN_VIDEO_FOLDER,
+        .{
+            .iterate = true,
+            .follow_symlinks = false,
+        },
+    );
+    defer vid_dir.close(io);
+
+    var dir_walker = try std.Io.Dir.walk(vid_dir, allocator);
+    defer dir_walker.deinit();
+
+    while (dir_walker.next(io)) |nullable_entry| {
+        const entry = nullable_entry orelse break;
+
+        if (entry.kind != .file) {
+            continue;
+        }
+
+        if (entry.basename[0] == '.') {
+            try std.Io.Dir.deleteFile(vid_dir, io, entry.path);
+        }
+    }
+    else |err| {
+        return err;
+    }
 }
 
 

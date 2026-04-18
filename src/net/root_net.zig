@@ -10,8 +10,6 @@ pub fn upload_thread(
     shared_data : *sync_data.SynchronousData
 ) void {
     while (null == shared_data.sync_error) {
-        std.log.debug("Upload thread running next iteration\n", .{});
-
         const iterable_dir = std.Io.Dir.openDir(
             .cwd(), 
             io, 
@@ -45,14 +43,24 @@ pub fn upload_thread(
             };
 
             upload_video(allocator, io, adjusted_path) catch {
-                @panic("TBD - what do I want to do when \"upload_video\" fails?");
+                //Continue to try next file if upload fails? Why just continue?
+                //Simple... file cleanup thread will cause panic if it must for
+                //the preservation of files, else it will gracefully delete.
+                //The only purpose in identifying the error state of uploading
+                //is to prevent other operations that would induce a crash or
+                //break our process (like moving a file to the folder of
+                //successfully archived videos if it hasn't been uploaded yet. 
+                continue;
             };
 
-            move_file_to_archived_folder(io, adjusted_path) catch {
+            move_file_to_archived_folder(io, adjusted_path) catch |err| {
+                std.log.err("Error retrieved: {any}\n", .{ err });
+                std.log.debug("\tsubmitted path: {s}\n", .{ adjusted_path });
                 @panic("TBD - what do I want to do when \"move_file_to_archived_folder\" fails?");
             };
         }
-        else |_| {
+        else |err| {
+            std.log.err("Iterator failed with error: {any}\n", .{ err });
             @panic("TBD - what do I do when the iterator fails?");
         }
         std.debug.print("Done printing list of detected files\n", .{});
@@ -97,7 +105,7 @@ fn upload_video(
     );
 
     var buffer_for_response : [4096]u8 = undefined;
-    var response = req.receiveHead(&buffer_for_response) catch |err| {
+    const response = req.receiveHead(&buffer_for_response) catch |err| {
         std.log.err("Receive head on response errored out: {any}\n", .{ err });
         @panic("Error in receiving response");
     };
@@ -150,6 +158,7 @@ fn move_file_to_archived_folder(
     io : std.Io,
     path : []const u8,
 ) !void {
+    std.log.debug("Starting an run of `move_file_to_archived_folder`\n", .{});
 
     _, const sub_path = std.mem.cut(u8, path, sys.FOLDER_FOR_FILES_TO_ARCHIVE) orelse return error.CouldNotFindFolderToReplaceInPath;
 

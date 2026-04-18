@@ -44,7 +44,7 @@ pub fn perfect_core_layout() !void {
     //The path makes cleanup simpler as we progress the project, and builds out
     //the ability for meshed uploading in the future. (Dedicated folders for
     //different cameras if this client is also a server)
-    try sys.establish_directories(io);
+    try sys.establish_directories(io, allocator);
 
     // Try to create camera object (making sure system works) before starting 
     // multithreaded portion.
