@@ -3,7 +3,7 @@ pub const Camera = @This();
 const std = @import("std");
 const debug = @import("debug");
 const sync = @import("sync_data");
-const c = @import("c_imports").c;
+const c = @import("c_imports");
 const config = @import("config");
 
 pub const MemoryMappedFrame = struct {
@@ -21,7 +21,7 @@ pub const MemoryMappedFrame = struct {
 file_descriptor: ?c_int,
 device_name: ?[*:0]const u8,
 allocator: std.mem.Allocator,
-frame_cache: []MemoryMappedFrame = &.{},
+frame_metadata: []MemoryMappedFrame = &.{},
 
 
 //******************************************************************************
@@ -127,8 +127,8 @@ pub fn deinit(self: *Camera) void {
         self.file_descriptor = null;
     }
 
-    if (0 < self.frame_cache.len) {
-        self.allocator.free(self.frame_cache);
+    if (0 < self.frame_metadata.len) {
+        self.allocator.free(self.frame_metadata);
     }
 }
 
@@ -366,8 +366,8 @@ fn initialize_mmap(self: *Camera) !void {
         return error.InsufficientBufferMemory;
     }
 
-    self.frame_cache = try self.allocator.alloc(MemoryMappedFrame, req.count);
-    errdefer self.allocator.free(self.frame_cache);
+    self.frame_metadata = try self.allocator.alloc(MemoryMappedFrame, req.count);
+    errdefer self.allocator.free(self.frame_metadata);
 
     for (0..req.count) |i| {
         var query_buf: c.struct_v4l2_buffer = std.mem.zeroes(c.struct_v4l2_buffer);
@@ -399,7 +399,7 @@ fn initialize_mmap(self: *Camera) !void {
             return error.MmapFailed;
         }
 
-        self.frame_cache[i] = .{
+        self.frame_metadata[i] = .{
             .start_address = start,
             .max_length = length,
         };
@@ -415,12 +415,12 @@ fn initialize_mmap(self: *Camera) !void {
 //******************************************************************************
 fn start_capturing(self: Camera) !void {
     if ((null == self.file_descriptor) or
-        (2 > self.frame_cache.len)) {
+        (2 > self.frame_metadata.len)) {
         return error.BadStructInstance;
     }
 
     // Go through and queue all the buffers for v4l to store data in. 
-    for (0..self.frame_cache.len) |index| {
+    for (0..self.frame_metadata.len) |index| {
         var buf: c.struct_v4l2_buffer = std.mem.zeroes(c.struct_v4l2_buffer);
 
         buf.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -463,9 +463,9 @@ pub fn capture_single_frame(self: Camera) !?u8 {
 
     debug.print("Updating camera data for recent capture\n:", .{});
     debug.print("\tUpdating buffer {d}'s bytes used (val = {d})...\n", .{ buf.index, buf.bytesused });
-    self.frame_cache[buf.index].bytes_used = buf.bytesused;
+    self.frame_metadata[buf.index].bytes_used = buf.bytesused;
     //debug.print("\tUpdating buffer {d}'s timestamp...\n", .{buf.index});
-    self.frame_cache[buf.index].time_stamp = buf.timestamp;
+    self.frame_metadata[buf.index].time_stamp = buf.timestamp;
     debug.print("Just aquired timestamp: {d}.{d}\n", .{buf.timestamp.tv_sec, buf.timestamp.tv_usec});
 
     debug.print("Sending Frame data for encoding...\n", .{});

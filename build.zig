@@ -4,11 +4,13 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const mod_c_imports = b.createModule(.{
-        .root_source_file = b.path("src/imports/c_imports.zig"),
+    const translate_c = b.addTranslateC(.{
+        .root_source_file = b.path("src/imports/c_imports.h"),
         .target = target,
         .optimize = optimize,
     });
+    translate_c.linkSystemLibrary("libavcodec", .{});
+    const mod_c_imports = translate_c.createModule();
 
     const mod_config = b.createModule(.{
         .root_source_file = b.path("src/config/root_config.zig"),
