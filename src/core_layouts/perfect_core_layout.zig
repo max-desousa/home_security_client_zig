@@ -18,8 +18,6 @@ const SIGNALS = [_]i32{
 var DEBUG_ALLOCATOR : std.heap.DebugAllocator(.{}) = .init;
 
 pub fn perfect_core_layout() !void {
-    debug.print("Using perfect core layout\n", .{});
-    debug.print("Initializing allocators\n", .{});
     const allocator : std.mem.Allocator = comptime switch (builtin.mode) {
         .Debug => DEBUG_ALLOCATOR.allocator(),
         else => std.heap.c_allocator,
@@ -44,7 +42,7 @@ pub fn perfect_core_layout() !void {
     //The path makes cleanup simpler as we progress the project, and builds out
     //the ability for meshed uploading in the future. (Dedicated folders for
     //different cameras if this client is also a server)
-    try sys.establish_directories(io);
+    try sys.establish_directories(io, allocator);
 
     // Try to create camera object (making sure system works) before starting 
     // multithreaded portion.
@@ -56,9 +54,17 @@ pub fn perfect_core_layout() !void {
 
     // Create data stuctures for sharing data between threads.
     var sync_data: sync.SynchronousData = .{};
+    var shutdown_flag : std.atomic.Value(bool) = .init(false);
 
-    try group.concurrent(io, encoding.encoding_thread, .{&sync_data, allocator, io });
-    try group.concurrent(io, camera.infinite_capture, .{&camera_obj, io, &sync_data});
+    var buffer_for_frames_to_encode : [32]usize = undefined;
+    var frames_to_encode : std.Io.Queue(usize) = .init(&buffer_for_frames_to_encode);
+    var buffer_for_frames_to_requeue : [32]usize = undefined;
+    var frames_to_requeue : std.Io.Queue(usize) = .init(&buffer_for_frames_to_requeue);
+
+    try group.concurrent(io, encoding.encoding_thread, .{ io, allocator, camera_obj.frame_metadata, &frames_to_encode, &frames_to_requeue });
+    try group.concurrent(io, camera.infinite_capture, .{&camera_obj, io, &frames_to_encode, &frames_to_requeue });
     try group.concurrent(io, net.upload_thread, .{ allocator, io, &sync_data });
-    try group.concurrent(io, sys.file_cleanup_thread, .{ io });
+    if (.NoDeletions != config.get_cleanup_stategy()) {
+        try group.concurrent(io, sys.file_cleanup_thread, .{ allocator, io, &shutdown_flag });
+    }
 }

@@ -4,11 +4,13 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const mod_c_imports = b.createModule(.{
-        .root_source_file = b.path("src/imports/c_imports.zig"),
+    const translate_c = b.addTranslateC(.{
+        .root_source_file = b.path("src/imports/c_imports.h"),
         .target = target,
         .optimize = optimize,
     });
+    translate_c.linkSystemLibrary("libavcodec", .{});
+    const mod_c_imports = translate_c.createModule();
 
     const mod_config = b.createModule(.{
         .root_source_file = b.path("src/config/root_config.zig"),
@@ -62,6 +64,18 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const mod_camera = b.createModule(.{
+        .root_source_file = b.path("src/camera/root_camera.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "sync_data", .module = mod_sync_data },
+            .{ .name = "debug", .module = mod_debug },
+            .{ .name = "c_imports", .module = mod_c_imports },
+            .{ .name = "config", .module = mod_config },
+        },
+    });
+
     const mod_encoding = b.createModule(.{
         .root_source_file = b.path("src/encoding/root_encoding.zig"),
         .target = target,
@@ -73,18 +87,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "config", .module = mod_config },
             .{ .name = "time", .module = mod_time },
             .{ .name = "sys", .module = mod_sys },
-        },
-    });
-
-    const mod_camera = b.createModule(.{
-        .root_source_file = b.path("src/camera/root_camera.zig"),
-        .target = target,
-        .optimize = optimize,
-        .imports = &.{
-            .{ .name = "sync_data", .module = mod_sync_data },
-            .{ .name = "debug", .module = mod_debug },
-            .{ .name = "c_imports", .module = mod_c_imports },
-            .{ .name = "config", .module = mod_config },
+            .{ .name = "camera", .module = mod_camera },
         },
     });
 

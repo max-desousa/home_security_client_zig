@@ -7,6 +7,37 @@ const std = @import("std");
 //Name of config file
 const CONFIG_FILE_NAME = "config.zap";
 
+pub const FileCleanupStrategy = enum {
+    /// No deletions ever. Camera will eventually run out of space and
+    /// crash/stop recording. User is fully responsible for external management
+    /// or very large storage.
+    NoDeletions,
+
+    // ----------------------------------------------------------------------
+    /// Delete any successfully archived file immediately. If uploads are
+    /// failing and space is full, delete oldest *un-uploaded* files to keep
+    /// recording. (Best for "fire-and-forget" with tolerance for flaky
+    /// networks)
+    DeleteArchivedImmediatelyUnprotected,
+
+    /// Delete any successfully archived file immediately. If uploads are
+    /// failing and space is full, **stop recording** to protect pending files.
+    /// (Strictest "never lose un-uploaded footage" while still freeing space
+    /// from uploaded files)
+    DeleteArchivedImmediatelyProtected,
+
+    // ----------------------------------------------------------------------
+    /// Keep both archived and pending files up to the configured limit. When
+    /// limit reached: delete oldest *archived* files first. If still full due
+    /// to pending files (prolonged outage): **stop recording** (crash).
+    GeneralProtected,
+
+    /// Keep both archived and pending files up to the configured limit. When
+    /// limit reached: delete oldest *archived* files first. If still full due
+    /// to pending files: delete oldest *un-uploaded* files to keep recording.
+    GeneralUnprotected,
+};
+
 //Fileds that are accepted/expected 
 const FIELD_DURATION = "[video duration]";
 const FIELD_HARDWARE_NAME = "[camera device name]";
@@ -20,6 +51,8 @@ const FIELD_CAMERA_NAME = "[camera name for archiving]";
 const FIELD_UTC_OFFSET_SECONDS = "[utc offset seconds]";
 const FIELD_SERVER_ADDRESS = "[ip address of the server]";
 const FIELD_SERVER_PORT = "[port of the server]";
+const FIELD_MEMORY_ALLOC = "[amount of memory for local storage]";
+const FIELD_CLEANUP_STRATEGY = "[strategy for cleanup (lookup options)]";
 
 
 // Variables backing global tracking of states
@@ -39,6 +72,10 @@ var VALUE_UTC_OFFSET_SECONDS : i64 = undefined;
 var BUFFER_FOR_VALUE_SERVER_ADDRESS : [64]u8 = undefined;
 var VALUE_SERVER_ADDRESS : [:0]u8 = BUFFER_FOR_VALUE_SERVER_ADDRESS[0..0 : 0];
 var VALUE_SERVER_PORT : u16 = undefined;
+var VALUE_MEMORY_ALLOC : usize = undefined;
+var BUFFER_FOR_CLEANUP_STRATEGY : [64]u8 = undefined;
+var STRING_FOR_CLEANUP_STRATEGY : []u8 = BUFFER_FOR_CLEANUP_STRATEGY[0..0];
+var VALUE_CLEANUP_STRATEGY : FileCleanupStrategy = undefined;
 
 
 //Getters to make the data immutable to consumers of the module. 
@@ -85,6 +122,14 @@ pub fn get_server_address() [:0]u8 {
 
 pub fn get_server_port() u16 {
     return VALUE_SERVER_PORT;
+}
+
+pub fn get_allocated_memory() usize {
+    return VALUE_MEMORY_ALLOC;
+}
+
+pub fn get_cleanup_stategy() FileCleanupStrategy {
+    return VALUE_CLEANUP_STRATEGY;
 }
 
 
@@ -165,6 +210,29 @@ fn parse_file(file : std.Io.File, io : std.Io) !void {
         else if (std.mem.eql(u8, before, FIELD_SERVER_PORT)) {
             VALUE_SERVER_PORT = try std.fmt.parseInt(u16, after, 10);
         }
+        else if (std.mem.eql(u8, before, FIELD_MEMORY_ALLOC)) {
+            VALUE_MEMORY_ALLOC = try std.fmt.parseInt(usize, after, 10);
+        }
+        else if (std.mem.eql(u8, before, FIELD_CLEANUP_STRATEGY)) {
+            if (std.mem.eql(u8, after, "NoDeletions")) {
+                VALUE_CLEANUP_STRATEGY = .NoDeletions;
+            }
+            else if (std.mem.eql(u8, after, "DeleteArchivedImmediatelyUnprotected")) {
+                VALUE_CLEANUP_STRATEGY = .DeleteArchivedImmediatelyUnprotected;
+            }
+            else if (std.mem.eql(u8, after, "DeleteArchivedImmediatelyProtected")) {
+                VALUE_CLEANUP_STRATEGY = .DeleteArchivedImmediatelyProtected;
+            }
+            else if (std.mem.eql(u8, after, "GeneralProtected")) {
+                VALUE_CLEANUP_STRATEGY = .GeneralProtected;
+            }
+            else if (std.mem.eql(u8, after, "GeneralUnprotected")) {
+                VALUE_CLEANUP_STRATEGY = .GeneralUnprotected;
+            }
+            else {
+                return error.InvalidCleanupStrategy;
+            }
+        }
         else {
             return error.InvalidOptionInFile;
         }
@@ -230,10 +298,17 @@ fn make_default_config(io : std.Io) !void {
     @memcpy(BUFFER_FOR_VALUE_SERVER_ADDRESS[0..address.len], address);
     BUFFER_FOR_VALUE_SERVER_ADDRESS[address.len] = 0;
     VALUE_SERVER_ADDRESS = BUFFER_FOR_VALUE_SERVER_ADDRESS[0..address.len :0];
-    try writer.interface.print("{s} = {s}\n", .{FIELD_SERVER_ADDRESS, VALUE_SERVER_ADDRESS });
+    try writer.interface.print("{s} = {s}\n", .{ FIELD_SERVER_ADDRESS, VALUE_SERVER_ADDRESS });
 
     VALUE_SERVER_PORT = 6969;
-    try writer.interface.print("{s} = {d}\n", .{FIELD_SERVER_PORT, VALUE_SERVER_PORT });
+    try writer.interface.print("{s} = {d}\n", .{ FIELD_SERVER_PORT, VALUE_SERVER_PORT });
+
+    VALUE_MEMORY_ALLOC = 10_000_000;
+    try writer.interface.print("{s} = {d}\n", .{ FIELD_MEMORY_ALLOC, VALUE_MEMORY_ALLOC });
+
+    VALUE_CLEANUP_STRATEGY = FileCleanupStrategy.GeneralUnprotected;
+    try writer.interface.print("{s} = GeneralUnprotected\n", .{ FIELD_CLEANUP_STRATEGY });
 
     try writer.end();
 }
+
