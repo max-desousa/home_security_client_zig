@@ -150,17 +150,14 @@ fn check_if_device_exists(self: Camera) bool {
             //return error.FStatFailed;
         }
 
-        debug.print("Device status obtained.\n", .{});
-
         if (!std.c.S.ISCHR(statx.mode)) {
-            debug.print("{s} is not a character device.\n", .{name});
+            std.log.err("{s} is not a character device.", .{name});
             return false;
             //return error.NotCharacterDevice;
         }
-
-        debug.print("{s} is a character device.\n", .{name});
         return true;
-    } else {
+    } 
+    else {
         return false;
     }
 }
@@ -228,15 +225,15 @@ fn configure_device(self: *Camera) !void {
                 (c.ENODEV == c_errno) or
                 (c.EPERM == c_errno))
             {
-                debug.print("Cropping not supported on this device.\n", .{});
+                std.log.warn("Cropping not supported on this device.", .{});
             } else {
-                debug.print("Failed to set crop rectangle.\n", .{});
+                std.log.err("Failed to set crop rectangle.", .{});
             }
         } else {
-            debug.print("Crop rectangle set successfully.\n", .{});
+            std.log.info("Crop rectangle set successfully.", .{});
         }
     } else {
-        debug.print("Failed to get crop capabilities.\n", .{});
+        std.log.err("Failed to get crop capabilities.\n", .{});
     }
 
     fmt.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -259,7 +256,7 @@ fn configure_device(self: *Camera) !void {
         }
         if ((config.get_camera_width() != validated_fmt.fmt.pix.width) or
             (config.get_camera_height() != validated_fmt.fmt.pix.height)) {
-            debug.print("ERROR: Camera not configured correctly\n", .{});
+            std.log.err("Camera not configured correctly", .{});
             debug.print("\twidth x height = {d}x{d}\n", .{validated_fmt.fmt.pix.width, validated_fmt.fmt.pix.width});
             return error.CameraSettingsDontMatchConfig;
         } else {

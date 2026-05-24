@@ -40,7 +40,7 @@ pub const CameraData = struct {
     // stored in the order that the encoder needs to send them to the video. 
     buffers_ready_to_encode: [BUFFER_SIZE]u8 = std.mem.zeroes([BUFFER_SIZE]u8),
     // Flags for buffers that no longer need to be reserved for the encoder. 
-    free_flags: std.bit_set.IntegerBitSet(BUFFER_SIZE) = std.bit_set.IntegerBitSet(BUFFER_SIZE).initEmpty(),
+    free_flags: std.bit_set.IntegerBitSet(BUFFER_SIZE) = .empty,
     // Values to track `buffers_ready_to_encode`
     head: usize = 0,
     tail: usize = 0,

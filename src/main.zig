@@ -4,8 +4,6 @@ const core_layouts = @import("core_layouts");
 const debug = @import("debug");
 
 pub fn main() !void {
-    debug.print("Number of cores: {d}\n", .{config.number_of_cores});
-
     if (config.number_of_cores < 1) {
         return error.InvalidCoreCount;
     }

@@ -7,7 +7,7 @@ const sys = @import("sys");
 pub fn upload_thread(
     allocator : std.mem.Allocator,
     io : std.Io,
-    shared_data : *sync_data.SynchronousData
+    shared_data : *sync_data.SynchronousData,
 ) void {
     while (null == shared_data.sync_error) {
         const iterable_dir = std.Io.Dir.openDir(

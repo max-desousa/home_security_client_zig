@@ -23,6 +23,9 @@ pub fn encoding_thread(
 ) void {
     debug.print("\tLooking for H.264 encoder...\n", .{});
 
+    //Small convenience setup step... ffmpeg has noisy logging. This suppresses that.
+    c.av_log_set_level(c.AV_LOG_QUIET);
+
     // Step 1: Find the H.264 encoder
     const encoder : *c.struct_AVCodec = c.avcodec_find_encoder(c.AV_CODEC_ID_H264) orelse {
         //Error... closing comms with camera to shut that down and exiting thread

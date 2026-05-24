@@ -18,8 +18,6 @@ const SIGNALS = [_]i32{
 var DEBUG_ALLOCATOR : std.heap.DebugAllocator(.{}) = .init;
 
 pub fn perfect_core_layout() !void {
-    debug.print("Using perfect core layout\n", .{});
-    debug.print("Initializing allocators\n", .{});
     const allocator : std.mem.Allocator = comptime switch (builtin.mode) {
         .Debug => DEBUG_ALLOCATOR.allocator(),
         else => std.heap.c_allocator,
