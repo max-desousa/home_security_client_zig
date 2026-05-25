@@ -19,11 +19,10 @@ pub fn upload_thread(
                 .follow_symlinks = false,
             },
         ) catch @panic("TBD - what do I do when folder cannot be opened?");
+        defer iterable_dir.close(io);
 
         var walker = std.Io.Dir.walk(iterable_dir, allocator) catch @panic("TBD - what do I do when walker won't initialize?");
         defer walker.deinit();
-
-        std.debug.print("Starting list of detected files\n", .{});
 
         while (walker.next(io)) |nullable_entry| {
             const entry = nullable_entry orelse break;
@@ -50,6 +49,7 @@ pub fn upload_thread(
                 //is to prevent other operations that would induce a crash or
                 //break our process (like moving a file to the folder of
                 //successfully archived videos if it hasn't been uploaded yet. 
+                std.log.warn("Uploading video failed", .{});
                 continue;
             };
 
@@ -65,7 +65,10 @@ pub fn upload_thread(
         }
         std.debug.print("Done printing list of detected files\n", .{});
 
-        std.Io.sleep(io, .fromSeconds(30), .real) catch continue;
+        const delay = config.get_upload_delay();
+        if (delay > 0) {
+            std.Io.sleep(io, .fromSeconds(30), .real) catch continue;
+        }
     }
 
     debug.print("Ending upload thread due to encoder error: {any}\n", .{ shared_data.sync_error });
