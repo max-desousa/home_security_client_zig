@@ -67,7 +67,7 @@ pub fn upload_thread(
 
         const delay = config.get_upload_delay();
         if (delay > 0) {
-            std.Io.sleep(io, .fromSeconds(30), .real) catch continue;
+            std.Io.sleep(io, .fromSeconds(@intCast(delay)), .real) catch continue;
         }
     }
 
