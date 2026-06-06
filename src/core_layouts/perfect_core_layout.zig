@@ -53,7 +53,6 @@ pub fn perfect_core_layout() !void {
     defer group.await(io) catch {};
 
     // Create data stuctures for sharing data between threads.
-    var sync_data: sync.SynchronousData = .{};
     var shutdown_flag : std.atomic.Value(bool) = .init(false);
 
     var buffer_for_frames_to_encode : [32]usize = undefined;
@@ -63,7 +62,7 @@ pub fn perfect_core_layout() !void {
 
     try group.concurrent(io, encoding.encoding_thread, .{ io, allocator, camera_obj.frame_metadata, &frames_to_encode, &frames_to_requeue });
     try group.concurrent(io, camera.infinite_capture, .{&camera_obj, io, &frames_to_encode, &frames_to_requeue });
-    try group.concurrent(io, net.upload_thread, .{ allocator, io, &sync_data });
+    try group.concurrent(io, net.upload_thread, .{ allocator, io });
     if (.NoDeletions != config.get_cleanup_stategy()) {
         try group.concurrent(io, sys.file_cleanup_thread, .{ allocator, io, &shutdown_flag });
     }

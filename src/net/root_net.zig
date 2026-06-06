@@ -3,13 +3,21 @@ const sync_data = @import("sync_data");
 const debug = @import("debug");
 const config = @import("config");
 const sys = @import("sys");
+const flags = @import("flags");
 
 pub fn upload_thread(
     allocator : std.mem.Allocator,
     io : std.Io,
-    shared_data : *sync_data.SynchronousData,
 ) void {
-    while (null == shared_data.sync_error) {
+    //In the event that the program was terminated wtihin this thread (i.e. -
+    //the program running flag still needs to be set... we'll make sure it's
+    //clear here at the start that the mechanism for getting the system to
+    //shutdown works.
+    defer flags.set_shutdown_flag();
+
+    // -- Beginning of Thread --
+
+    while (flags.is_program_running()) {
         const iterable_dir = std.Io.Dir.openDir(
             .cwd(), 
             io, 
@@ -70,8 +78,6 @@ pub fn upload_thread(
             std.Io.sleep(io, .fromSeconds(@intCast(delay)), .real) catch continue;
         }
     }
-
-    debug.print("Ending upload thread due to encoder error: {any}\n", .{ shared_data.sync_error });
 }
 
 fn upload_video(

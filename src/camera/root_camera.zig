@@ -5,6 +5,7 @@ const debug = @import("debug");
 const sync = @import("sync_data");
 const c = @import("c_imports");
 const config = @import("config");
+const flags = @import("flags");
 
 pub const MemoryMappedFrame = struct {
     //Memory Mapped address on initialization of the camera object
@@ -43,6 +44,14 @@ pub fn infinite_capture(
     frames_to_encode : *std.Io.Queue(usize),
     frames_to_requeue : *std.Io.Queue(usize),
 ) void {
+    //In the event that the program was terminated wtihin this thread (i.e. -
+    //the program running flag still needs to be set... we'll make sure it's
+    //clear here at the start that the mechanism for getting the system to
+    //shutdown works.
+    defer flags.set_shutdown_flag();
+
+    // -- Beginning of Thread --
+
     // Queue all buffers and start stream.
     self.start_capturing() catch |err| {
         debug.print("There was an error starting the capturing of frames with the camera...\n", .{});
@@ -52,25 +61,25 @@ pub fn infinite_capture(
     };
 
     // infintely capture frames. 
-    while (true) {
+    while (flags.is_program_running()) {
         //returning all possible frames to v4l after they've been encoded
         {
-        var frames_to_free : [32]usize = undefined;
-        const number_of_frames_to_free = frames_to_requeue.get(
-            io, 
-            &frames_to_free,
-            0
-        ) catch |err| {
-            std.log.err("Aborting camera capture logic due to encoder closing communication: {any}\n", .{ err });
-            return;
-        };
-        for (0..number_of_frames_to_free) |i| {
-            self.release_buffer(@intCast(frames_to_free[i])) catch |err| {
-                std.log.err("Error freeing the buffer and returning it to v4l. Closing comms with encoder and aborting camera thread. (error: {any})\n", .{ err });
-                frames_to_encode.close(io);
+            var frames_to_free : [32]usize = undefined;
+            const number_of_frames_to_free = frames_to_requeue.get(
+                io, 
+                &frames_to_free,
+                0
+            ) catch |err| {
+                std.log.err("Aborting camera capture logic due to encoder closing communication: {any}\n", .{ err });
                 return;
             };
-        }
+            for (0..number_of_frames_to_free) |i| {
+                self.release_buffer(@intCast(frames_to_free[i])) catch |err| {
+                    std.log.err("Error freeing the buffer and returning it to v4l. Closing comms with encoder and aborting camera thread. (error: {any})\n", .{ err });
+                    frames_to_encode.close(io);
+                    return;
+                };
+            }
         }
 
 
@@ -190,8 +199,8 @@ fn device_supports_video(self: Camera) bool {
 fn open_device(self: *Camera) !void {
     var device: c_int = -1;
     if (self.device_name) |name| {
-        const flags = std.c.O{ .ACCMODE = .RDWR, .NONBLOCK = true };
-        device = std.c.open(name, flags, @as(c_int, 0));
+        const c_flags = std.c.O{ .ACCMODE = .RDWR, .NONBLOCK = true };
+        device = std.c.open(name, c_flags, @as(c_int, 0));
         if (-1 == device) {
             return error.OpenDeviceFailed;
         }

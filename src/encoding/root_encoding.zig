@@ -7,6 +7,7 @@ const c = @import("c_imports");
 const time = @import("time");
 const sys = @import("sys");
 const camera = @import("camera");
+const flags = @import("flags");
 
 //##############################################################################
 // Function: encoding_thread
@@ -21,6 +22,14 @@ pub fn encoding_thread(
     frames_to_encode : *std.Io.Queue(usize),
     frames_to_requeue : *std.Io.Queue(usize),
 ) void {
+    //In the event that the program was terminated wtihin this thread (i.e. -
+    //the program running flag still needs to be set... we'll make sure it's
+    //clear here at the start that the mechanism for getting the system to
+    //shutdown works.
+    defer flags.set_shutdown_flag();
+
+    // -- Beginning of Thread --
+
     debug.print("\tLooking for H.264 encoder...\n", .{});
 
     //Small convenience setup step... ffmpeg has noisy logging. This suppresses that.
@@ -48,7 +57,7 @@ pub fn encoding_thread(
         return;
     }
 
-    while (true) {
+    while (flags.is_program_running()) {
         const duration = config.get_config_video_duration(); // 10 minutes
         const file_name_window =
             time.get_windowed_time_for_filename_string(allocator, io, duration)

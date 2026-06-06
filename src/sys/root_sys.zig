@@ -1,5 +1,6 @@
 const std = @import("std");
 const config = @import("config");
+const flags = @import("flags");
 
 pub const FOLDER_FOR_FILES_TO_ARCHIVE = "ToArchive";
 pub const FOLDER_FOR_ALREADY_ARCHIVED_FILES = "Archived";
@@ -27,7 +28,15 @@ pub fn file_cleanup_thread(
     io : std.Io,
     shutdown_flag : *std.atomic.Value(bool),
 ) std.Io.Cancelable!void {
-    while (true) {
+    //In the event that the program was terminated wtihin this thread (i.e. -
+    //the program running flag still needs to be set... we'll make sure it's
+    //clear here at the start that the mechanism for getting the system to
+    //shutdown works.
+    defer flags.set_shutdown_flag();
+
+    // -- Beginning of Thread --
+
+    while (flags.is_program_running()) {
         try io.checkCancel();
         //std.log.debug("Checking shutdown flag\n", .{});
         if (shutdown_flag.load(.acquire)) {

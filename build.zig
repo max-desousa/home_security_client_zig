@@ -12,6 +12,12 @@ pub fn build(b: *std.Build) void {
     translate_c.linkSystemLibrary("libavcodec", .{});
     const mod_c_imports = translate_c.createModule();
 
+    const mod_flags = b.createModule(.{
+        .root_source_file = b.path("src/global/flags.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const mod_config = b.createModule(.{
         .root_source_file = b.path("src/config/root_config.zig"),
         .target = target,
@@ -24,6 +30,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "config", .module = mod_config },
+            .{ .name = "flags", .module = mod_flags },
         },
     });
 
@@ -52,6 +59,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "debug", .module = mod_debug },
             .{ .name = "config", .module = mod_config },
             .{ .name = "sys", .module = mod_sys },
+            .{ .name = "flags", .module = mod_flags },
         },
     });
 
@@ -73,6 +81,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "debug", .module = mod_debug },
             .{ .name = "c_imports", .module = mod_c_imports },
             .{ .name = "config", .module = mod_config },
+            .{ .name = "flags", .module = mod_flags },
         },
     });
 
@@ -88,6 +97,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "time", .module = mod_time },
             .{ .name = "sys", .module = mod_sys },
             .{ .name = "camera", .module = mod_camera },
+            .{ .name = "flags", .module = mod_flags },
         },
     });
 
