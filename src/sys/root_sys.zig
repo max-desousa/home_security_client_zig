@@ -25,28 +25,11 @@ const FileInfo = struct {
 pub fn file_cleanup_thread(
     allocator : std.mem.Allocator,
     io : std.Io,
-    shutdown_flag : *std.atomic.Value(bool),
 ) std.Io.Cancelable!void {
     while (true) {
         try io.checkCancel();
-        //std.log.debug("Checking shutdown flag\n", .{});
-        if (shutdown_flag.load(.acquire)) {
-            return;
-        }
-        //std.log.debug("Shutdown flag not set\n", .{});
-        // So many functions are convenient to `try`... and if the thread is
-        // capable of failing at all... I want the whole group to close...
-        // Since io.concurrent has restrictions on it's ability to return
-        // errors... I'll wrap the bread and butter of my thread in another
-        // function that handles any error by assisting in cancelling the group
-        // without needing to pass it down the callstack.
-        //
-        // The only restriction is that in order for the previous check cancel
-        // called earlier to be effective - there should be some element of
-        // tightness to this function so io.checkCancel is frequently checked.
         failable_version_of_cleanup_thread(allocator, io) catch |err| {
             std.log.err("Issue found when running cleanup thread: {any}\n", .{ err });
-            shutdown_flag.store(true, .release);
             return;
         };
     }
@@ -67,7 +50,7 @@ fn failable_version_of_cleanup_thread(
             @panic("TBD - cleanup strategy GeneralProtected not yet implemented");
         },
         .GeneralUnprotected => {
-            @panic("TBD - cleanup strategy GeneralUnprotected not yet implemented");
+            try general_unprotected_strategy(io, allocator);
         },
         else => unreachable,
     }
@@ -346,4 +329,93 @@ pub fn get_archived_path(
     buffer : []u8,
 ) ![]u8 {
     return try get_archived_path_for_camera(buffer, config.get_camera_name());
+}
+
+const file_name_and_size = struct {
+    path : []const u8,
+    file_name : []const u8,
+    size : u64,
+};
+
+
+//******************************************************************************
+// Function: 
+//
+// Description: 
+//******************************************************************************
+fn general_unprotected_strategy(
+    io : std.Io,
+    allocator : std.mem.Allocator,
+) !void {
+    _ = &io;
+
+    var list_of_files_and_sizes : std.ArrayList(file_name_and_size) = .empty;
+    defer {
+        for (list_of_files_and_sizes.items) |item| {
+            allocator.free(item.file_name);
+            allocator.free(item.path);
+        }
+        list_of_files_and_sizes.deinit(allocator);
+    }
+
+    try get_list_of_files_and_names(&list_of_files_and_sizes);
+}
+
+
+//******************************************************************************
+// Function: 
+//
+// Description: 
+//******************************************************************************
+fn get_list_of_files_and_names(
+    io : std.Io,
+    allocator : std.mem.Allocator,
+    list : *std.ArrayList(file_name_and_size),
+) !void {
+    var walkable_dir = try std.Io.Dir.openDir(
+        .cwd(),
+        io,
+        "./Videos",
+        .{
+            .iterate = true,
+        }
+    );
+
+    var walker = try walkable_dir.walk(allocator);
+    defer walker.deinit();
+
+    while(walker.next(io)) |nullable_entry| {
+        const entry = nullable_entry orelse break;
+        //Skipping hidden files... those are actively being encoded (so there
+        //should only be one)
+        if (entry.basename[0] == '.') continue;
+        if (entry.kind != .file) continue;
+
+        const copied_path = try std.mem.Allocator.dupe(allocator, u8, entry.path);
+        errdefer allocator.free(copied_path);
+
+        const local_copy_base_name, _ = std.mem.cut(u8, entry.basename, ".") orelse return error.NoFileExtension;
+        const copied_base_name = try std.mem.dupe(allocator, u8, local_copy_base_name);
+        errdefer allocator.free(copied_base_name);
+
+        const file = try std.Io.Dir.openFile(walkable_dir, io, entry.path, .{});
+        defer file.close(io);
+
+        const file_stat = try std.Io.File.stat(file, io);
+
+        try list.append(
+            allocator,
+           .{
+               .path = copied_path,
+               .file_name = copied_base_name,
+               .size = file_stat.size,
+           },
+        );
+    }
+    else |err| {
+        std.debug.print("Error iterating over directory: {any}\n", .{ err });
+        std.debug.print("Aborting thread\n", .{ err });
+        return err;
+    }
+
 }

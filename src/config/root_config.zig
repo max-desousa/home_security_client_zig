@@ -73,7 +73,7 @@ var VALUE_UTC_OFFSET_SECONDS : i64 = undefined;
 var BUFFER_FOR_VALUE_SERVER_ADDRESS : [64]u8 = undefined;
 var VALUE_SERVER_ADDRESS : [:0]u8 = BUFFER_FOR_VALUE_SERVER_ADDRESS[0..0 : 0];
 var VALUE_SERVER_PORT : u16 = undefined;
-var VALUE_MEMORY_ALLOC : usize = undefined;
+var VALUE_MEMORY_ALLOC : u64 = undefined;
 var BUFFER_FOR_CLEANUP_STRATEGY : [64]u8 = undefined;
 var STRING_FOR_CLEANUP_STRATEGY : []u8 = BUFFER_FOR_CLEANUP_STRATEGY[0..0];
 var VALUE_CLEANUP_STRATEGY : FileCleanupStrategy = undefined;
@@ -126,7 +126,7 @@ pub fn get_server_port() u16 {
     return VALUE_SERVER_PORT;
 }
 
-pub fn get_allocated_memory() usize {
+pub fn get_allocated_memory() u64 {
     return VALUE_MEMORY_ALLOC;
 }
 
@@ -217,7 +217,7 @@ fn parse_file(file : std.Io.File, io : std.Io) !void {
             VALUE_SERVER_PORT = try std.fmt.parseInt(u16, after, 10);
         }
         else if (std.mem.eql(u8, before, FIELD_MEMORY_ALLOC)) {
-            VALUE_MEMORY_ALLOC = try std.fmt.parseInt(usize, after, 10);
+            VALUE_MEMORY_ALLOC = try std.fmt.parseInt(u64, after, 10);
         }
         else if (std.mem.eql(u8, before, FIELD_CLEANUP_STRATEGY)) {
             if (std.mem.eql(u8, after, "NoDeletions")) {
