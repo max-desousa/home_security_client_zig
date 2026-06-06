@@ -315,8 +315,8 @@ fn make_default_config(io : std.Io) !void {
     VALUE_MEMORY_ALLOC = 10_000_000;
     try writer.interface.print("{s} = {d}\n", .{ FIELD_MEMORY_ALLOC, VALUE_MEMORY_ALLOC });
 
-    VALUE_CLEANUP_STRATEGY = FileCleanupStrategy.GeneralUnprotected;
-    try writer.interface.print("{s} = GeneralUnprotected\n", .{ FIELD_CLEANUP_STRATEGY });
+    VALUE_CLEANUP_STRATEGY = FileCleanupStrategy.NoDeletions;
+    try writer.interface.print("{s} = NoDeletions\n", .{ FIELD_CLEANUP_STRATEGY });
 
     VALUE_UPLOAD_DELAY = 30;
     try writer.interface.print("{s} = {d}\n", .{ FIELD_UPLOAD_DELAY, VALUE_UPLOAD_DELAY });
