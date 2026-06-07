@@ -1,5 +1,6 @@
 const std = @import("std");
 const config = @import("config");
+const flags = @import("flags");
 
 pub const FOLDER_FOR_FILES_TO_ARCHIVE = "ToArchive";
 pub const FOLDER_FOR_ALREADY_ARCHIVED_FILES = "Archived";
@@ -25,28 +26,11 @@ const FileInfo = struct {
 pub fn file_cleanup_thread(
     allocator : std.mem.Allocator,
     io : std.Io,
-    shutdown_flag : *std.atomic.Value(bool),
 ) std.Io.Cancelable!void {
     while (true) {
         try io.checkCancel();
-        //std.log.debug("Checking shutdown flag\n", .{});
-        if (shutdown_flag.load(.acquire)) {
-            return;
-        }
-        //std.log.debug("Shutdown flag not set\n", .{});
-        // So many functions are convenient to `try`... and if the thread is
-        // capable of failing at all... I want the whole group to close...
-        // Since io.concurrent has restrictions on it's ability to return
-        // errors... I'll wrap the bread and butter of my thread in another
-        // function that handles any error by assisting in cancelling the group
-        // without needing to pass it down the callstack.
-        //
-        // The only restriction is that in order for the previous check cancel
-        // called earlier to be effective - there should be some element of
-        // tightness to this function so io.checkCancel is frequently checked.
         failable_version_of_cleanup_thread(allocator, io) catch |err| {
             std.log.err("Issue found when running cleanup thread: {any}\n", .{ err });
-            shutdown_flag.store(true, .release);
             return;
         };
     }
@@ -64,10 +48,10 @@ fn failable_version_of_cleanup_thread(
             try delete_archived_files(io, allocator);
         },
         .GeneralProtected => {
-            @panic("TBD - cleanup strategy GeneralProtected not yet implemented");
+            try general_protected_strategy(io, allocator);
         },
         .GeneralUnprotected => {
-            @panic("TBD - cleanup strategy GeneralUnprotected not yet implemented");
+            try general_unprotected_strategy(io, allocator);
         },
         else => unreachable,
     }
@@ -346,4 +330,236 @@ pub fn get_archived_path(
     buffer : []u8,
 ) ![]u8 {
     return try get_archived_path_for_camera(buffer, config.get_camera_name());
+}
+
+const file_name_and_size = struct {
+    path : []const u8,
+    file_name : []const u8,
+    size : u64,
+};
+
+
+//******************************************************************************
+// Function: 
+//
+// Description: 
+//******************************************************************************
+fn general_protected_strategy(
+    io : std.Io,
+    allocator : std.mem.Allocator,
+) !void {
+    while(true) {
+
+        const to_be_archived_size = try get_size_of_files_yet_to_archive(io, allocator);
+        if (to_be_archived_size >= config.get_allocated_memory()) {
+            @panic("To Be Implemented: You've exceeded your allocated memory in files not yet backed up with a protective strategy for memory handling. Program is deliberatly crashing to prevent data loss");
+        }
+        
+        var list_of_files_and_sizes : std.ArrayList(file_name_and_size) = .empty;
+        defer {
+            for (list_of_files_and_sizes.items) |item| {
+                allocator.free(item.file_name);
+                allocator.free(item.path);
+            }
+            list_of_files_and_sizes.deinit(allocator);
+        }
+
+        const current_uploaded_size = try get_list_of_files_and_names(
+            io,
+            allocator,
+            PATH_TO_ARCHIVED_DIR,
+            &list_of_files_and_sizes
+        );
+        var cumulative_size_on_disk = to_be_archived_size + current_uploaded_size;
+
+        var index : usize = 0;
+        var buffer_for_adjusted_path : [512]u8 = undefined;
+
+        while (cumulative_size_on_disk > config.get_allocated_memory()) : (index += 1) {
+            const adjusted_path = try std.fmt.bufPrint(
+                &buffer_for_adjusted_path,
+                "{s}{c}{s}",
+                .{ 
+                    PATH_TO_ARCHIVED_DIR,
+                    std.fs.path.sep,
+                    list_of_files_and_sizes.items[index].path 
+                }
+            );
+            try std.Io.Dir.deleteFile(.cwd(), io, adjusted_path);
+            cumulative_size_on_disk -= list_of_files_and_sizes.items[index].size;
+        }
+    }
+}
+
+
+//******************************************************************************
+// Function: 
+//
+// Description: 
+//******************************************************************************
+fn general_unprotected_strategy(
+    io : std.Io,
+    allocator : std.mem.Allocator,
+) !void {
+    while(true) {
+        var list_of_files_and_sizes : std.ArrayList(file_name_and_size) = .empty;
+        defer {
+            for (list_of_files_and_sizes.items) |item| {
+                allocator.free(item.file_name);
+                allocator.free(item.path);
+            }
+            list_of_files_and_sizes.deinit(allocator);
+        }
+
+        var current_size = try get_list_of_files_and_names(io, allocator, MAIN_VIDEO_FOLDER, &list_of_files_and_sizes);
+
+        sort_file_list(&list_of_files_and_sizes);
+
+        var index : usize = 0;
+
+        var buffer_for_adjusted_path : [512]u8 = undefined;
+
+        while (current_size > config.get_allocated_memory()) : (index += 1) {
+            const adjusted_path = try std.fmt.bufPrint(
+                &buffer_for_adjusted_path,
+                "{s}{c}{s}",
+                .{ 
+                    MAIN_VIDEO_FOLDER,
+                    std.fs.path.sep,
+                    list_of_files_and_sizes.items[index].path 
+                }
+            );
+            try std.Io.Dir.deleteFile(.cwd(), io, adjusted_path);
+            current_size -= list_of_files_and_sizes.items[index].size;
+        }
+    }
+}
+
+
+//******************************************************************************
+// Function: 
+//
+// Description: 
+//******************************************************************************
+fn get_list_of_files_and_names(
+    io : std.Io,
+    allocator : std.mem.Allocator,
+    starting_dir : []const u8,
+    list : *std.ArrayList(file_name_and_size),
+) !u64 {
+
+    var return_total_size : u64 = 0;
+
+    var walkable_dir = try std.Io.Dir.openDir(
+        .cwd(),
+        io,
+        starting_dir,
+        .{
+            .iterate = true,
+        }
+    );
+    defer walkable_dir.close(io);
+
+    var walker = try walkable_dir.walk(allocator);
+    defer walker.deinit();
+
+    while(walker.next(io)) |nullable_entry| {
+        const entry = nullable_entry orelse break;
+        //Skipping hidden files... those are actively being encoded (so there
+        //should only be one)
+        if (entry.basename[0] == '.') continue;
+        if (entry.kind != .file) continue;
+
+        const copied_path = try std.mem.Allocator.dupe(allocator, u8, entry.path);
+        errdefer allocator.free(copied_path);
+
+        const local_copy_base_name, _ = std.mem.cut(u8, entry.basename, ".") orelse return error.NoFileExtension;
+        const copied_base_name = try std.mem.Allocator.dupe(allocator, u8, local_copy_base_name);
+        errdefer allocator.free(copied_base_name);
+
+        const file = try std.Io.Dir.openFile(walkable_dir, io, entry.path, .{});
+        defer file.close(io);
+
+        const file_stat = try std.Io.File.stat(file, io);
+        return_total_size += file_stat.size;
+
+        try list.append(
+            allocator,
+           .{
+               .path = copied_path,
+               .file_name = copied_base_name,
+               .size = file_stat.size,
+           },
+        );
+    }
+    else |err| {
+        std.debug.print("Error iterating over directory: {any}\n", .{ err });
+        std.debug.print("Aborting thread\n", .{});
+        return err;
+    }
+
+    return return_total_size;
+}
+
+
+//******************************************************************************
+// Function: 
+//
+// Description: 
+//******************************************************************************
+fn sort_file_list(list : *std.ArrayList(file_name_and_size)) void {
+    std.mem.sort(file_name_and_size, list.items, {}, file_name_less_than);
+}
+
+
+//******************************************************************************
+// Function: 
+//
+// Description: 
+//******************************************************************************
+fn file_name_less_than(_ : void, a : file_name_and_size, b : file_name_and_size) bool {
+    return std.mem.order(u8, a.file_name, b.file_name) == .lt;
+}
+
+
+//******************************************************************************
+// Function: 
+//
+// Description: 
+//******************************************************************************
+fn get_size_of_files_yet_to_archive(
+    io : std.Io,
+    allocator : std.mem.Allocator,
+) !u64 {
+    var size : u64 = 0;
+
+    var walkable_dir = try std.Io.Dir.openDir(
+        .cwd(),
+       io,
+       PATH_TO_TO_ARCHIVE_DIR,
+       .{ .iterate = true, }
+    );
+    defer walkable_dir.close(io);
+
+    var dir_walker = try walkable_dir.walk(allocator);
+    defer dir_walker.deinit();
+
+    while (dir_walker.next(io)) |nullable_entry| {
+        const entry = nullable_entry orelse break;
+        //Skipping hidden files... those are actively being encoded (so there
+        //should only be one)
+        if (entry.basename[0] == '.') continue;
+        if (entry.kind != .file) continue;
+
+        const file = try std.Io.Dir.openFile(walkable_dir, io, entry.path, .{});
+        defer file.close(io);
+
+        const file_stat = try std.Io.File.stat(file, io);
+        size += file_stat.size;
+    }
+    else |err| {
+        std.debug.print("Failed to iterate over walkable dir due to error: {any}\n", .{ err });
+        return err;
+    }
+    return size;
 }
