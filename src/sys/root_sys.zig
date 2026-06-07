@@ -367,7 +367,15 @@ fn general_unprotected_strategy(
         var buffer_for_adjusted_path : [512]u8 = undefined;
 
         while (current_size > config.get_allocated_memory()) : (index += 1) {
-            const adjusted_path = try std.fmt.bufPrint(&buffer_for_adjusted_path, "Videos/{s}", .{ list_of_files_and_sizes.items[index].path });
+            const adjusted_path = try std.fmt.bufPrint(
+                &buffer_for_adjusted_path,
+                "{s}{c}{s}",
+                .{ 
+                    MAIN_VIDEO_FOLDER,
+                    std.fs.path.sep,
+                    list_of_files_and_sizes.items[index].path 
+                }
+            );
             try std.Io.Dir.deleteFile(.cwd(), io, adjusted_path);
             current_size -= list_of_files_and_sizes.items[index].size;
         }
@@ -391,7 +399,7 @@ fn get_list_of_files_and_names(
     var walkable_dir = try std.Io.Dir.openDir(
         .cwd(),
         io,
-        "./Videos",
+        MAIN_VIDEO_FOLDER,
         .{
             .iterate = true,
         }
