@@ -1,5 +1,6 @@
 const std = @import("std");
 const config = @import("config");
+const flags = @import("flags");
 
 pub const FOLDER_FOR_FILES_TO_ARCHIVE = "ToArchive";
 pub const FOLDER_FOR_ALREADY_ARCHIVED_FILES = "Archived";
@@ -347,18 +348,34 @@ fn general_unprotected_strategy(
     io : std.Io,
     allocator : std.mem.Allocator,
 ) !void {
-    _ = &io;
-
-    var list_of_files_and_sizes : std.ArrayList(file_name_and_size) = .empty;
-    defer {
-        for (list_of_files_and_sizes.items) |item| {
-            allocator.free(item.file_name);
-            allocator.free(item.path);
+    while(true) {
+        var list_of_files_and_sizes : std.ArrayList(file_name_and_size) = .empty;
+        defer {
+            for (list_of_files_and_sizes.items) |item| {
+                allocator.free(item.file_name);
+                allocator.free(item.path);
+            }
+            list_of_files_and_sizes.deinit(allocator);
         }
-        list_of_files_and_sizes.deinit(allocator);
-    }
 
-    try get_list_of_files_and_names(&list_of_files_and_sizes);
+        var current_size = try get_list_of_files_and_names(io, allocator, &list_of_files_and_sizes);
+
+        sort_file_list(&list_of_files_and_sizes);
+
+        var index : usize = 0;
+
+        std.debug.print("About to consider deletions...\n", .{});
+        std.debug.print("\tCurrent directory size: {d}\n", .{ current_size });
+        std.debug.print("\tConfigured Directory Limit: {d}\n", .{ config.get_allocated_memory() });
+        var buffer_for_adjusted_path : [512]u8 = undefined;
+
+        while (current_size > config.get_allocated_memory()) : (index += 1) {
+            std.debug.print("Trying to delete file: {s}\n", .{ list_of_files_and_sizes.items[index].path });
+            const adjusted_path = try std.fmt.bufPrint(&buffer_for_adjusted_path, "Videos/{s}", .{ list_of_files_and_sizes.items[index].path });
+            try std.Io.Dir.deleteFile(.cwd(), io, adjusted_path);
+            current_size -= list_of_files_and_sizes.items[index].size;
+        }
+    }
 }
 
 
@@ -371,7 +388,10 @@ fn get_list_of_files_and_names(
     io : std.Io,
     allocator : std.mem.Allocator,
     list : *std.ArrayList(file_name_and_size),
-) !void {
+) !u64 {
+
+    var return_total_size : u64 = 0;
+
     var walkable_dir = try std.Io.Dir.openDir(
         .cwd(),
         io,
@@ -380,6 +400,7 @@ fn get_list_of_files_and_names(
             .iterate = true,
         }
     );
+    defer walkable_dir.close(io);
 
     var walker = try walkable_dir.walk(allocator);
     defer walker.deinit();
@@ -395,13 +416,14 @@ fn get_list_of_files_and_names(
         errdefer allocator.free(copied_path);
 
         const local_copy_base_name, _ = std.mem.cut(u8, entry.basename, ".") orelse return error.NoFileExtension;
-        const copied_base_name = try std.mem.dupe(allocator, u8, local_copy_base_name);
+        const copied_base_name = try std.mem.Allocator.dupe(allocator, u8, local_copy_base_name);
         errdefer allocator.free(copied_base_name);
 
         const file = try std.Io.Dir.openFile(walkable_dir, io, entry.path, .{});
         defer file.close(io);
 
         const file_stat = try std.Io.File.stat(file, io);
+        return_total_size += file_stat.size;
 
         try list.append(
             allocator,
@@ -414,8 +436,29 @@ fn get_list_of_files_and_names(
     }
     else |err| {
         std.debug.print("Error iterating over directory: {any}\n", .{ err });
-        std.debug.print("Aborting thread\n", .{ err });
+        std.debug.print("Aborting thread\n", .{});
         return err;
     }
 
+    return return_total_size;
+}
+
+
+//******************************************************************************
+// Function: 
+//
+// Description: 
+//******************************************************************************
+fn sort_file_list(list : *std.ArrayList(file_name_and_size)) void {
+    std.mem.sort(file_name_and_size, list.items, {}, file_name_less_than);
+}
+
+
+//******************************************************************************
+// Function: 
+//
+// Description: 
+//******************************************************************************
+fn file_name_less_than(_ : void, a : file_name_and_size, b : file_name_and_size) bool {
+    return std.mem.order(u8, a.file_name, b.file_name) == .lt;
 }
