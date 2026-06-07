@@ -3,7 +3,6 @@ const builtin = @import("builtin");
 const camera = @import("camera");
 const encoding = @import("encoding");
 const debug = @import("debug");
-const sync = @import("sync_data");
 const config = @import("config");
 const net = @import("net");
 const sys = @import("sys");
@@ -52,9 +51,6 @@ pub fn perfect_core_layout() !void {
     var group : std.Io.Group = .init;
     defer group.await(io) catch {};
 
-    // Create data stuctures for sharing data between threads.
-    var shutdown_flag : std.atomic.Value(bool) = .init(false);
-
     var buffer_for_frames_to_encode : [32]usize = undefined;
     var frames_to_encode : std.Io.Queue(usize) = .init(&buffer_for_frames_to_encode);
     var buffer_for_frames_to_requeue : [32]usize = undefined;
@@ -64,6 +60,6 @@ pub fn perfect_core_layout() !void {
     try group.concurrent(io, camera.infinite_capture, .{&camera_obj, io, &frames_to_encode, &frames_to_requeue });
     try group.concurrent(io, net.upload_thread, .{ allocator, io });
     if (.NoDeletions != config.get_cleanup_stategy()) {
-        try group.concurrent(io, sys.file_cleanup_thread, .{ allocator, io, &shutdown_flag });
+        try group.concurrent(io, sys.file_cleanup_thread, .{ allocator, io });
     }
 }

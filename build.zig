@@ -107,7 +107,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "camera", .module = mod_camera },
-            .{ .name = "sync_data", .module = mod_sync_data },
             .{ .name = "encoding", .module = mod_encoding },
             .{ .name = "debug", .module = mod_debug },
             .{ .name = "config", .module = mod_config },
