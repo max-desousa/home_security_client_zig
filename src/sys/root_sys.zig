@@ -364,13 +364,9 @@ fn general_unprotected_strategy(
 
         var index : usize = 0;
 
-        std.debug.print("About to consider deletions...\n", .{});
-        std.debug.print("\tCurrent directory size: {d}\n", .{ current_size });
-        std.debug.print("\tConfigured Directory Limit: {d}\n", .{ config.get_allocated_memory() });
         var buffer_for_adjusted_path : [512]u8 = undefined;
 
         while (current_size > config.get_allocated_memory()) : (index += 1) {
-            std.debug.print("Trying to delete file: {s}\n", .{ list_of_files_and_sizes.items[index].path });
             const adjusted_path = try std.fmt.bufPrint(&buffer_for_adjusted_path, "Videos/{s}", .{ list_of_files_and_sizes.items[index].path });
             try std.Io.Dir.deleteFile(.cwd(), io, adjusted_path);
             current_size -= list_of_files_and_sizes.items[index].size;
