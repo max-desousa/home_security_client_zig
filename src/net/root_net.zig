@@ -17,7 +17,7 @@ pub fn upload_thread(
 
     // -- Beginning of Thread --
 
-    while (flags.is_program_running()) {
+    while (flags.is_operating_normally()) {
         const iterable_dir = std.Io.Dir.openDir(
             .cwd(), 
             io, 

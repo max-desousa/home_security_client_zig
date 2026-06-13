@@ -61,7 +61,8 @@ pub fn infinite_capture(
     };
 
     // infintely capture frames. 
-    while (flags.is_program_running()) {
+    while ((.NormalOperation == flags.get_current_state()) or
+           (.UploadError_MaintainCapture == flags.get_current_state())) {
         //returning all possible frames to v4l after they've been encoded
         {
             var frames_to_free : [32]usize = undefined;

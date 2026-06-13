@@ -17,15 +17,14 @@ const flags = @import("flags");
 //##############################################################################
 pub fn encoding_thread(
     io: std.Io,
-    allocator : std.mem.Allocator, 
-    frame_data : []camera.MemoryMappedFrame,
+    allocator : std.mem.Allocator,
     frames_to_encode : *std.Io.Queue(usize),
     frames_to_requeue : *std.Io.Queue(usize),
+    frame_metadata : []camera.MemoryMappedFrame,
 ) void {
-    //In the event that the program was terminated wtihin this thread (i.e. -
-    //the program running flag still needs to be set... we'll make sure it's
-    //clear here at the start that the mechanism for getting the system to
-    //shutdown works.
+    //If this function is terminating... that means that there is no possible
+    //reintroduction to endoding. The program should properly shutdown (unless
+    //we find another way to retrigger the encoder)
     defer flags.set_shutdown_flag();
 
     // -- Beginning of Thread --
@@ -57,46 +56,29 @@ pub fn encoding_thread(
         return;
     }
 
-    while (flags.is_program_running()) {
-        const duration = config.get_config_video_duration(); // 10 minutes
-        const file_name_window =
-            time.get_windowed_time_for_filename_string(allocator, io, duration)
-            catch {
-                break;
-            };
-        defer allocator.free(file_name_window);
+    while (true) {
+        const current_state = flags.get_current_state();
 
-        var file_name_buffer : [64]u8 = undefined;
-        const file_name = std.fmt.bufPrintSentinel(&file_name_buffer, "{s}.ts", .{file_name_window}, 0) catch {
-            break;
-        };
-
-        var buffer_for_dir_only_path : [128]u8 = undefined;
-        const dir_only_path = sys.get_to_archive_path(&buffer_for_dir_only_path) catch {
-            break;
-        };
-        var buffer_full_path_with_file_name : [256]u8 = undefined;
-        const full_path_with_file_name = std.fmt.bufPrintSentinel(
-            &buffer_full_path_with_file_name,
-            "{s}{c}.{s}",
-            .{
-                dir_only_path,
-                std.fs.path.sep,
-                file_name,
+        switch (current_state) {
+            .NormalOperation, .UploadError_MaintainCapture => {
+                continuous_encoding_loop(
+                    io,
+                    allocator,
+                    enc_ctx,
+                    frames_to_encode,
+                    frames_to_requeue,
+                    frame_metadata,
+                ) catch break;
             },
-            0,
-        ) catch {
-            break;
-        };
+            .SystemShutdown => break,
+            else => continue,
+        }
+    }
 
-        create_video(
-            io, 
-            enc_ctx, 
-            full_path_with_file_name,
-            frames_to_encode,
-            frames_to_requeue,
-            frame_data,
-        ) catch break;
+
+
+
+    while (!flags.is_system_shutdown()) {
     }
 
     debug.print("Encoding thread was ended due to encountering an error...\n", .{});
@@ -315,4 +297,55 @@ fn create_video(
         return error.CouldNotRenameFile;
     };
     debug.print("Finished – output.mp4 is ready and playable!\n", .{});
+}
+
+fn continuous_encoding_loop(
+    io : std.Io,
+    allocator : std.mem.Allocator,
+    enc_ctx : *c.struct_AVCodecContext,
+    frames_to_encode : *std.Io.Queue(usize),
+    frames_to_requeue : *std.Io.Queue(usize),
+    frame_data : []camera.MemoryMappedFrame,
+) !void {
+        const duration = config.get_config_video_duration(); // 10 minutes
+        const file_name_window =
+            time.get_windowed_time_for_filename_string(allocator, io, duration)
+            catch |err| {
+                return err;
+            };
+        defer allocator.free(file_name_window);
+
+        var file_name_buffer : [64]u8 = undefined;
+        const file_name = std.fmt.bufPrintSentinel(&file_name_buffer, "{s}.ts", .{file_name_window}, 0) catch |err| {
+            return err;
+        };
+
+        var buffer_for_dir_only_path : [128]u8 = undefined;
+        const dir_only_path = sys.get_to_archive_path(&buffer_for_dir_only_path) catch |err| {
+            return err;
+        };
+        var buffer_full_path_with_file_name : [256]u8 = undefined;
+        const full_path_with_file_name = std.fmt.bufPrintSentinel(
+            &buffer_full_path_with_file_name,
+            "{s}{c}.{s}",
+            .{
+                dir_only_path,
+                std.fs.path.sep,
+                file_name,
+            },
+            0,
+        ) catch |err| {
+            return err;
+        };
+
+        create_video(
+            io, 
+            enc_ctx, 
+            full_path_with_file_name,
+            frames_to_encode,
+            frames_to_requeue,
+            frame_data,
+        ) catch |err| {
+            return err;
+        };
 }

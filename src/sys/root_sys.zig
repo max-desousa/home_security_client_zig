@@ -35,7 +35,7 @@ pub fn file_cleanup_thread(
 
     // -- Beginning of Thread --
 
-    while (flags.is_program_running()) {
+    while (flags.is_operating_normally()) {
         try io.checkCancel();
         failable_version_of_cleanup_thread(allocator, io) catch |err| {
             std.log.err("Issue found when running cleanup thread: {any}\n", .{ err });
