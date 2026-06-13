@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub const SystemStates = enum {
+pub const SystemStates = enum(u8) {
     NormalOperation,
     UploadError_MaintainCapture,
     CaptureError_MaintainWireless,
@@ -25,7 +25,7 @@ pub fn is_system_shutdown() bool {
 pub fn set_upload_error() void {
     const current_state = ProgramRunning.load(.seq_cst);
     switch (current_state) {
-        .NormalOperation => ProgramRunning.store(.UploadErrorHaltCapture, .seq_cst),
+        .NormalOperation => ProgramRunning.store(.UploadError_MaintainCapture, .seq_cst),
         .UploadError_MaintainCapture => return, //This function is to set this state... disregard
         .CaptureError_MaintainWireless => ProgramRunning.store(.EverythingBroken_WaitForSystemRecovery, .seq_cst),
         .EverythingBroken_WaitForSystemRecovery => return, //We're already reporting upload errors... disregard

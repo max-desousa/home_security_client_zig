@@ -17,7 +17,10 @@ const flags = @import("flags");
 //##############################################################################
 pub fn encoding_thread(
     io: std.Io,
+    allocator : std.mem.Allocator,
+    frames_to_encode : *std.Io.Queue(usize),
     frames_to_requeue : *std.Io.Queue(usize),
+    frame_metadata : []camera.MemoryMappedFrame,
 ) void {
     //If this function is terminating... that means that there is no possible
     //reintroduction to endoding. The program should properly shutdown (unless
@@ -58,8 +61,17 @@ pub fn encoding_thread(
 
         switch (current_state) {
             .NormalOperation, .UploadError_MaintainCapture => {
-                try continuous_encoding_loop() catch break;
+                continuous_encoding_loop(
+                    io,
+                    allocator,
+                    enc_ctx,
+                    frames_to_encode,
+                    frames_to_requeue,
+                    frame_metadata,
+                ) catch break;
             },
+            .SystemShutdown => break,
+            else => continue,
         }
     }
 
@@ -291,9 +303,9 @@ fn continuous_encoding_loop(
     io : std.Io,
     allocator : std.mem.Allocator,
     enc_ctx : *c.struct_AVCodecContext,
-    frames_to_encode,
-    //frames_to_requeue,
-    //frame_data,
+    frames_to_encode : *std.Io.Queue(usize),
+    frames_to_requeue : *std.Io.Queue(usize),
+    frame_data : []camera.MemoryMappedFrame,
 ) !void {
         const duration = config.get_config_video_duration(); // 10 minutes
         const file_name_window =
@@ -333,5 +345,7 @@ fn continuous_encoding_loop(
             frames_to_encode,
             frames_to_requeue,
             frame_data,
-        ) catch break;
+        ) catch |err| {
+            return err;
+        };
 }

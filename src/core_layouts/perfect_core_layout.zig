@@ -56,7 +56,7 @@ pub fn perfect_core_layout() !void {
     var buffer_for_frames_to_requeue : [32]usize = undefined;
     var frames_to_requeue : std.Io.Queue(usize) = .init(&buffer_for_frames_to_requeue);
 
-    try group.concurrent(io, encoding.encoding_thread, .{ io, allocator, camera_obj.frame_metadata, &frames_to_encode, &frames_to_requeue });
+    try group.concurrent(io, encoding.encoding_thread, .{ io, allocator, &frames_to_encode, &frames_to_requeue, camera_obj.frame_metadata });
     try group.concurrent(io, camera.infinite_capture, .{&camera_obj, io, &frames_to_encode, &frames_to_requeue });
     try group.concurrent(io, net.upload_thread, .{ allocator, io });
     if (.NoDeletions != config.get_cleanup_stategy()) {
