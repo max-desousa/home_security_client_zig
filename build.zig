@@ -4,6 +4,28 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    //Getting an allocator for any needed compile time checks written in zig 
+    //like running a child process to query the system.
+    var debug_allocator : std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.deinit();
+    const allocator = debug_allocator.allocator();
+
+    //Getting an io interface for the similar. 
+    var threaded : std.Io.Threaded = .init(allocator, .{});
+    const io = threaded.io();
+    _ = &io;
+
+    const mesh = b.option(bool, "mesh", "Run compile checks that hardware supports mesh and facilitate build changes - if needed - for procedural differences") orelse false;
+
+    if (mesh) {
+        if (system_supports_mesh(b)) {
+        }
+        else {
+            var fail_due_to_mesh = b.addFail("There haven't been checks put in place yet to determine if the system can even support mesh yet. Failing... this is a feature for the future.");
+            b.getInstallStep().dependOn(&fail_due_to_mesh.step);
+        }
+    }
+
     const translate_c = b.addTranslateC(.{
         .root_source_file = b.path("src/imports/c_imports.h"),
         .target = target,
@@ -160,4 +182,17 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&run_mod_camera_tests.step);
     test_step.dependOn(&run_exe_tests.step);
+}
+
+
+//******************************************************************************
+//* Function:
+//*
+//* Description: 
+//******************************************************************************
+fn system_supports_mesh(b : *std.Build) bool {
+    const output = b.run(&.{ "iw", "list" });
+    const section_index = std.mem.find(u8, output, "Supported interface modes") orelse return false;
+    _ = std.mem.find(u8, output[section_index..], "AP") orelse return false;
+    return true;
 }
