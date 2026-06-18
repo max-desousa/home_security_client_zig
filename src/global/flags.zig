@@ -5,6 +5,7 @@ pub const SystemStates = enum(u8) {
     UploadError_MaintainCapture,
     CaptureError_MaintainWireless,
     EverythingBroken_WaitForSystemRecovery,
+    MemoryFull_HaltingCapture,
     SystemShutdown,
 };
 
