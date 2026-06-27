@@ -1,5 +1,8 @@
+//Stdlib modules
 const std = @import("std");
 const builtin = @import("builtin");
+
+//Custom modules
 const camera = @import("camera");
 const encoding = @import("encoding");
 const debug = @import("debug");
@@ -17,7 +20,7 @@ const SIGNALS = [_]i32{
 // access to this parent object)
 var DEBUG_ALLOCATOR : std.heap.DebugAllocator(.{}) = .init;
 
-pub fn perfect_core_layout() !void {
+pub fn main() !void {
     const allocator : std.mem.Allocator = comptime switch (builtin.mode) {
         .Debug => DEBUG_ALLOCATOR.allocator(),
         else => std.heap.c_allocator,

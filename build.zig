@@ -91,8 +91,12 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    const mod_cores = b.createModule(.{
-        .root_source_file = b.path("src/core_layouts/root_cores.zig"),
+    //Creating modules for different core layouts
+    //  This section is used to direct - based on system availability -
+    //  different `main` functions that approach the solution in different ways
+    //  to optimize for the target system.
+    const mod_perfect_core_layout = b.createModule(.{
+        .root_source_file = b.path("src/core_layouts/perfect_core_layout.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{
@@ -106,17 +110,36 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const mod_restricted_core_layout = b.createModule(.{
+        .root_source_file = b.path("src/core_layouts/restricted_core_layout.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "camera", .module = mod_camera },
+            .{ .name = "debug", .module = mod_debug },
+        },
+    });
+
+    const mod_single_core_layout = b.createModule(.{
+        .root_source_file = b.path("src/core_layouts/single_core_layout.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "camera", .module = mod_camera },
+            .{ .name = "debug", .module = mod_debug },
+        },
+    });
+    //END modules for different cores. 
+
+    const number_of_cores = b.option(usize, "number_of_cores", "Number of CPU cores to use for building") orelse std.Thread.getCpuCount() catch 1;
+
     const exe = b.addExecutable(.{
         .name = "zig_home_security_client",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "core_layouts", .module = mod_cores },
-                .{ .name = "debug", .module = mod_debug },
-            },
-        }),
+        .root_module = switch (number_of_cores) {
+            1 => mod_single_core_layout,
+            2...7 => mod_restricted_core_layout,
+            else => mod_perfect_core_layout,
+        },
     });
 
     exe.root_module.link_libc = true;
@@ -124,13 +147,6 @@ pub fn build(b: *std.Build) void {
     exe.root_module.linkSystemLibrary("libavcodec", .{});
     exe.root_module.linkSystemLibrary("libavutil", .{});
     exe.root_module.linkSystemLibrary("libswscale", .{});
-
-    const options = b.addOptions();
-    const number_of_cores = b.option(usize, "number_of_cores", "Number of CPU cores to use for building") orelse std.Thread.getCpuCount() catch 1;
-
-    options.addOption(usize, "number_of_cores", number_of_cores);
-
-    exe.root_module.addOptions("config", options);
 
     b.installArtifact(exe);
 
@@ -141,9 +157,7 @@ pub fn build(b: *std.Build) void {
 
     run_cmd.step.dependOn(b.getInstallStep());
 
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
+    run_cmd.addPassthruArgs();
 
     const mod_camera_tests = b.addTest(.{
         .root_module = mod_camera,
