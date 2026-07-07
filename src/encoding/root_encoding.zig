@@ -27,7 +27,8 @@ pub fn encoding_thread(
     c.av_log_set_level(c.AV_LOG_QUIET);
 
     // Step 1: Find the H.264 encoder
-    const encoder : *c.struct_AVCodec = c.avcodec_find_encoder(c.AV_CODEC_ID_H264) orelse {
+    const maybe_encoder = c.avcodec_find_encoder(c.AV_CODEC_ID_H264);
+    const encoder : *const c.struct_AVCodec = if (null != maybe_encoder) @ptrCast(@alignCast(maybe_encoder)) else {
         //Error... closing comms with camera to shut that down and exiting thread
         frames_to_requeue.close(io);
         return;
@@ -102,7 +103,7 @@ pub fn encoding_thread(
 //             for 640x480 YUV420P at 30fps for now - will make configurable
 //             later.
 //##############################################################################
-fn set_encoder_context(encoder: *c.struct_AVCodec) ?*c.struct_AVCodecContext {
+fn set_encoder_context(encoder: *const c.struct_AVCodec) ?*c.struct_AVCodecContext {
     var enc_ctx : *c.struct_AVCodecContext = c.avcodec_alloc_context3(@ptrCast(encoder)) orelse {
         return null;
     };
