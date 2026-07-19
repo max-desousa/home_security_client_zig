@@ -34,7 +34,7 @@ pub fn perfect_core_layout() !void {
     const io = threaded.io();
 
     // Establish/Read config file to determine specific behaviors.
-    config.establish_config(io) catch {
+    config.establish_config(io, allocator) catch {
         @panic("Something went wrong with the file");
     };
 

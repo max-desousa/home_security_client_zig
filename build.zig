@@ -12,10 +12,15 @@ pub fn build(b: *std.Build) void {
     translate_c.linkSystemLibrary("libavcodec", .{});
     const mod_c_imports = translate_c.createModule();
 
+    const toml = b.dependency("toml", .{});
+
     const mod_config = b.createModule(.{
         .root_source_file = b.path("src/config/root_config.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{
+            .{ .name = "toml", .module = toml.module("toml") },
+        },
     });
 
     const mod_sys = b.createModule(.{
@@ -141,23 +146,7 @@ pub fn build(b: *std.Build) void {
 
     run_cmd.step.dependOn(b.getInstallStep());
 
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
-
-    const mod_camera_tests = b.addTest(.{
-        .root_module = mod_camera,
-    });
-
-    const run_mod_camera_tests = b.addRunArtifact(mod_camera_tests);
-
-    const exe_tests = b.addTest(.{
-        .root_module = exe.root_module,
-    });
-
-    const run_exe_tests = b.addRunArtifact(exe_tests);
-
-    const test_step = b.step("test", "Run tests");
-    test_step.dependOn(&run_mod_camera_tests.step);
-    test_step.dependOn(&run_exe_tests.step);
+    // This allows the user to pass arguments to the application in the build
+    // command itself, like this: `zig build run -- arg1 arg2 etc`
+    run_cmd.addPassthruArgs();
 }

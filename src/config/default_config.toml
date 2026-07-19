@@ -1,0 +1,53 @@
+################################################################################
+#                            Video Capture Settings
+#
+# This section contains all settings related to the video capture. Particularly
+# attributes related to the videos produced (not settings related to camera
+# hardware - see camera settings section for that)
+################################################################################
+video_duration = 15
+video_frame_rate = 30
+video_width = 640
+video_height = 480
+video_crf = 25
+
+
+################################################################################
+#                               Camera Settings
+#
+# This section contains settings related to the actual camera used for
+# capturing videos. Ex: changing the camera used or how the camera shows up on
+# your server
+################################################################################
+camera_device_name = "/dev/video0"
+camera_name_for_archiving = "NewCamera_2527704881"
+
+
+################################################################################
+#                                Error Settings
+#
+# Security Cameras are important. Here are settings that can be used to govern
+# certain ways you can enable your system to crash. TODO update this with
+# better user information
+################################################################################
+crash_on_bad_cam_settings = true
+crash_poor_cam_performance = false
+
+
+################################################################################
+#                                Time Settings
+#
+################################################################################
+utc_offset_seconds = -18000
+
+
+################################################################################
+#                                Time Settings
+#
+################################################################################
+server_ip_address = "127.0.0.1"
+port_of_the_server = 6969
+upload_delay = 30
+
+memory_storage_limit = 10000000
+cleanup_strategy = GeneralUnprotected
