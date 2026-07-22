@@ -2,7 +2,7 @@
 const std = @import("std");
 const debug = @import("debug");
 const sync = @import("sync_data");
-const config = @import("config");
+const get_config = @import("config").configz;
 const c = @import("c_imports");
 const time = @import("time");
 const sys = @import("sys");
@@ -50,7 +50,7 @@ pub fn encoding_thread(
     }
 
     while (true) {
-        const duration = config.get_config_video_duration(); // 10 minutes
+        const duration = get_config().video_duration; // 10 minutes
         const file_name_window =
             time.get_windowed_time_for_filename_string(allocator, io, duration)
             catch {
@@ -108,11 +108,11 @@ fn set_encoder_context(encoder: *const c.struct_AVCodec) ?*c.struct_AVCodecConte
         return null;
     };
 
-    const fps = config.get_camera_frame_rate();
+    const fps = get_config().video_frame_rate;
 
     // ------ Encoder parameters ------
-    enc_ctx.width = config.get_camera_width();
-    enc_ctx.height = config.get_camera_height();
+    enc_ctx.width = get_config().video_width;
+    enc_ctx.height = get_config().video_height;
     enc_ctx.time_base = .{ .num = 1, .den = (fps * 1_000) };
     enc_ctx.framerate = .{ .num = fps, .den = 1 };
     enc_ctx.pix_fmt = c.AV_PIX_FMT_YUV420P;
@@ -123,7 +123,7 @@ fn set_encoder_context(encoder: *const c.struct_AVCodec) ?*c.struct_AVCodecConte
 
     //Buffer for getting crf value from config as string
     var crf_buffer: [4]u8 = undefined;
-    const crf_str = std.fmt.bufPrintSentinel(&crf_buffer, "{d}", .{config.get_crf_value()}, 0) catch "25";
+    const crf_str = std.fmt.bufPrintSentinel(&crf_buffer, "{d}", .{get_config().video_crf}, 0) catch "25";
 
     // ultrafast + zerolatency = perfect for security cam
     _ = c.av_opt_set(enc_ctx.priv_data, "preset", "veryfast", 0);
@@ -205,8 +205,8 @@ fn create_video(
         defer c.av_frame_free(@ptrCast(&src_frame));
 
         src_frame.format = c.AV_PIX_FMT_YUYV422;
-        src_frame.width  = config.get_camera_width();
-        src_frame.height = config.get_camera_height();
+        src_frame.width  = get_config().video_width;
+        src_frame.height = get_config().video_height;
         if (c.av_frame_get_buffer(@ptrCast(src_frame), 0) < 0) {
             continue;
         }
@@ -214,7 +214,7 @@ fn create_video(
         const yuyv_ptr: [*c]const u8 = @ptrCast(cached_frames[buffer_index].start_address);
         const yuyv_len = cached_frames[buffer_index].bytes_used;
         @memcpy(src_frame.data[0], yuyv_ptr[0..yuyv_len]);
-        src_frame.linesize[0] = config.get_camera_width() * 2;
+        src_frame.linesize[0] = get_config().video_width * 2;
 
         // ----- Convert to YUV420P -----
         var dst_frame : *c.struct_AVFrame = c.av_frame_alloc() orelse {
@@ -223,8 +223,8 @@ fn create_video(
         defer c.av_frame_free(@ptrCast(&dst_frame));
 
         dst_frame.format = c.AV_PIX_FMT_YUV420P;
-        dst_frame.width  = config.get_camera_width();
-        dst_frame.height = config.get_camera_height();
+        dst_frame.width  = get_config().video_width;
+        dst_frame.height = get_config().video_height;
         if (c.av_frame_get_buffer(@ptrCast(dst_frame), 0) < 0) {
             continue;
         }
@@ -232,8 +232,8 @@ fn create_video(
         // Create sws context once
         if (sws_ctx == null) {
             sws_ctx = c.sws_getContext(
-                config.get_camera_width(), config.get_camera_height(), c.AV_PIX_FMT_YUYV422,
-                config.get_camera_width(), config.get_camera_height(), c.AV_PIX_FMT_YUV420P,
+                get_config().video_width, get_config().video_height, c.AV_PIX_FMT_YUYV422,
+                get_config().video_width, get_config().video_height, c.AV_PIX_FMT_YUV420P,
                 c.SWS_BILINEAR, null, null, null,
             );
         }
@@ -242,7 +242,7 @@ fn create_video(
         _ = c.sws_scale(sws_ctx,
             @ptrCast(&src_frame.data),
             @ptrCast(&src_frame.linesize),
-            0, config.get_camera_height(),
+            0, get_config().video_height,
             @ptrCast(&dst_frame.data),
             @ptrCast(&dst_frame.linesize));
 
@@ -253,7 +253,7 @@ fn create_video(
             starting_pts_us = pts_us;
         }
 
-        const fps = config.get_camera_frame_rate();
+        const fps = get_config().video_frame_rate;
         dst_frame.pts = @intCast(@divFloor(((pts_us - starting_pts_us.?) * (fps * 1_000)), 1_000_000));
 
         // ----- Encode -----

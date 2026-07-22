@@ -5,6 +5,7 @@ const encoding = @import("encoding");
 const debug = @import("debug");
 const sync = @import("sync_data");
 const config = @import("config");
+const get_config = @import("config").configz;
 const net = @import("net");
 const sys = @import("sys");
 
@@ -19,11 +20,11 @@ var DEBUG_ALLOCATOR : std.heap.DebugAllocator(.{}) = .init;
 
 pub fn perfect_core_layout() !void {
     const allocator : std.mem.Allocator = comptime switch (builtin.mode) {
-        .Debug => DEBUG_ALLOCATOR.allocator(),
+        .debug => DEBUG_ALLOCATOR.allocator(),
         else => std.heap.c_allocator,
     };
     defer {
-        if (.Debug == builtin.mode) {
+        if (.debug == builtin.mode) {
             _ = DEBUG_ALLOCATOR.deinit();
         }
     }
@@ -46,7 +47,7 @@ pub fn perfect_core_layout() !void {
 
     // Try to create camera object (making sure system works) before starting 
     // multithreaded portion.
-    var camera_obj = try camera.init(config.get_camera_hardware_name(), allocator);
+    var camera_obj = try camera.init(get_config().camera_device_name, allocator);
     defer camera_obj.deinit();
 
     var group : std.Io.Group = .init;
@@ -63,7 +64,7 @@ pub fn perfect_core_layout() !void {
     try group.concurrent(io, encoding.encoding_thread, .{ io, allocator, camera_obj.frame_metadata, &frames_to_encode, &frames_to_requeue });
     try group.concurrent(io, camera.infinite_capture, .{&camera_obj, io, &frames_to_encode, &frames_to_requeue });
     try group.concurrent(io, net.upload_thread, .{ allocator, io, &sync_data });
-    if (.NoDeletions != config.get_cleanup_stategy()) {
+    if (.NoDeletions != get_config().cleanup_strategy) {
         try group.concurrent(io, sys.file_cleanup_thread, .{ allocator, io });
     }
 }

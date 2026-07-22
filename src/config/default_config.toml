@@ -50,4 +50,4 @@ port_of_the_server = 6969
 upload_delay = 30
 
 memory_storage_limit = 10000000
-cleanup_strategy = GeneralUnprotected
+cleanup_strategy = "GeneralUnprotected"

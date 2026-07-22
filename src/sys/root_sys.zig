@@ -1,5 +1,5 @@
 const std = @import("std");
-const config = @import("config");
+const get_config = @import("config").configz;
 const flags = @import("flags");
 
 pub const FOLDER_FOR_FILES_TO_ARCHIVE = "ToArchive";
@@ -40,7 +40,7 @@ fn failable_version_of_cleanup_thread(
     allocator : std.mem.Allocator,
     io : std.Io,
 ) !void {
-    switch (config.get_cleanup_stategy()) {
+    switch (get_config().cleanup_strategy) {
         .DeleteArchivedImmediatelyUnprotected => {
             try delete_archived_files(io, allocator);
         },
@@ -182,6 +182,9 @@ pub fn establish_directories(
 
     var buffer_for_path_names : [512]u8 = undefined;
 
+    std.debug.print("Value: {d}\n", .{ get_config().video_duration });
+    std.debug.print("Value: {s}\n", .{ get_config().camera_name_for_archiving });
+
     var path_name = try std.fmt.bufPrint(
         &buffer_for_path_names, 
         "{s}{c}{s}{c}{s}", 
@@ -190,7 +193,7 @@ pub fn establish_directories(
             std.fs.path.sep,
             FOLDER_FOR_FILES_TO_ARCHIVE,
             std.fs.path.sep,
-            config.get_camera_name(), 
+            get_config().camera_name_for_archiving, 
         }
     );
 
@@ -204,7 +207,7 @@ pub fn establish_directories(
             std.fs.path.sep,
             FOLDER_FOR_ALREADY_ARCHIVED_FILES,
             std.fs.path.sep,
-            config.get_camera_name(), 
+            get_config().camera_name_for_archiving, 
         }
     );
 
@@ -270,7 +273,7 @@ fn delete_hidden_files(
 //******************************************************************************
 pub fn get_to_archive_path_for_camera(
     buffer : []u8,
-    camera_name : []u8,
+    camera_name : []const u8,
 ) ![]u8 {
     return try std.fmt.bufPrint(
         buffer,
@@ -294,7 +297,10 @@ pub fn get_to_archive_path_for_camera(
 pub fn get_to_archive_path(
     buffer : []u8,
 ) ![]u8 {
-    return try get_to_archive_path_for_camera(buffer, config.get_camera_name());
+    return try get_to_archive_path_for_camera(
+        buffer,
+        get_config().camera_name_for_archiving
+    );
 }
 
 
@@ -329,7 +335,7 @@ pub fn get_archived_path_for_camera(
 pub fn get_archived_path(
     buffer : []u8,
 ) ![]u8 {
-    return try get_archived_path_for_camera(buffer, config.get_camera_name());
+    return try get_archived_path_for_camera(buffer, get_config().camera_name_for_archiving);
 }
 
 const file_name_and_size = struct {
@@ -351,7 +357,7 @@ fn general_protected_strategy(
     while(true) {
 
         const to_be_archived_size = try get_size_of_files_yet_to_archive(io, allocator);
-        if (to_be_archived_size >= config.get_allocated_memory()) {
+        if (to_be_archived_size >= get_config().memory_storage_limit) {
             @panic("To Be Implemented: You've exceeded your allocated memory in files not yet backed up with a protective strategy for memory handling. Program is deliberatly crashing to prevent data loss");
         }
         
@@ -375,7 +381,7 @@ fn general_protected_strategy(
         var index : usize = 0;
         var buffer_for_adjusted_path : [512]u8 = undefined;
 
-        while (cumulative_size_on_disk > config.get_allocated_memory()) : (index += 1) {
+        while (cumulative_size_on_disk > get_config().memory_storage_limit) : (index += 1) {
             const adjusted_path = try std.fmt.bufPrint(
                 &buffer_for_adjusted_path,
                 "{s}{c}{s}",
@@ -419,7 +425,7 @@ fn general_unprotected_strategy(
 
         var buffer_for_adjusted_path : [512]u8 = undefined;
 
-        while (current_size > config.get_allocated_memory()) : (index += 1) {
+        while (current_size > get_config().memory_storage_limit) : (index += 1) {
             const adjusted_path = try std.fmt.bufPrint(
                 &buffer_for_adjusted_path,
                 "{s}{c}{s}",

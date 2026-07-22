@@ -4,7 +4,7 @@ const std = @import("std");
 const debug = @import("debug");
 const sync = @import("sync_data");
 const c = @import("c_imports");
-const config = @import("config");
+const get_config = @import("config").configz;
 
 pub const MemoryMappedFrame = struct {
     //Memory Mapped address on initialization of the camera object
@@ -19,7 +19,7 @@ pub const MemoryMappedFrame = struct {
 };
 
 file_descriptor: ?c_int,
-device_name: ?[*:0]const u8,
+device_name: ?[]const u8,
 allocator: std.mem.Allocator,
 frame_metadata: []MemoryMappedFrame = &.{},
 
@@ -98,7 +98,7 @@ pub fn infinite_capture(
 }
 
 
-pub fn init(dev_name: [:0]const u8, allocator: std.mem.Allocator) !Camera {
+pub fn init(dev_name: []const u8, allocator: std.mem.Allocator) !Camera {
     var camera: Camera = .{
         .file_descriptor = null,
         .device_name = dev_name,
@@ -136,9 +136,17 @@ fn check_if_device_exists(self: Camera) bool {
     if (self.device_name) |name| {
         var statx: std.os.linux.Statx = undefined;
 
+        var modified_buffer : [256]u8 = undefined;
+        const sentinel_name = std.fmt.bufPrintSentinel(
+            &modified_buffer,
+            "{s}",
+            .{ name }, 
+            0
+        ) catch return false;
+
         const statx_check = std.c.statx(
             std.c.AT.FDCWD,
-            name,
+            sentinel_name,
             0,
             .BASIC_STATS,
             &statx,
@@ -191,7 +199,15 @@ fn open_device(self: *Camera) !void {
     var device: c_int = -1;
     if (self.device_name) |name| {
         const flags = std.c.O{ .ACCMODE = .RDWR, .NONBLOCK = true };
-        device = std.c.open(name, flags, @as(c_int, 0));
+
+        var modified_buffer : [256]u8 = undefined;
+        const sentinel_name = try std.fmt.bufPrintSentinel(
+            &modified_buffer,
+            "{s}",
+            .{ name },
+           0
+       );
+        device = std.c.open(sentinel_name, flags, @as(c_int, 0));
         if (-1 == device) {
             return error.OpenDeviceFailed;
         }
@@ -237,8 +253,8 @@ fn configure_device(self: *Camera) !void {
     }
 
     fmt.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    fmt.fmt.pix.width = config.get_camera_width();
-    fmt.fmt.pix.height = config.get_camera_height();
+    fmt.fmt.pix.width = get_config().video_width;
+    fmt.fmt.pix.height = get_config().video_height;
     fmt.fmt.pix.pixelformat = c.V4L2_PIX_FMT_YUYV;
 
     if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_S_FMT, &fmt)) {
@@ -246,7 +262,7 @@ fn configure_device(self: *Camera) !void {
         return error.SetFormatFailed;
     }
 
-    if (config.get_crash_on_vid_diff()) {
+    if (get_config().crash_on_bad_cam_settings) {
         debug.print("Set to validate camera settings... checking now\n", .{});
         var validated_fmt: c.v4l2_format = std.mem.zeroes(c.v4l2_format);
         validated_fmt.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -254,8 +270,8 @@ fn configure_device(self: *Camera) !void {
             debug.print("Could not get video settings\n", .{});
             return error.CouldNotValidateCameraSettings;
         }
-        if ((config.get_camera_width() != validated_fmt.fmt.pix.width) or
-            (config.get_camera_height() != validated_fmt.fmt.pix.height)) {
+        if ((get_config().video_width != validated_fmt.fmt.pix.width) or
+            (get_config().video_height != validated_fmt.fmt.pix.height)) {
             std.log.err("Camera not configured correctly", .{});
             debug.print("\twidth x height = {d}x{d}\n", .{validated_fmt.fmt.pix.width, validated_fmt.fmt.pix.width});
             return error.CameraSettingsDontMatchConfig;
@@ -276,7 +292,7 @@ fn configure_device(self: *Camera) !void {
 }
 
 fn attempt_to_set_frame_rate(self: *Camera) !void {
-    const crash_on_diff = config.get_crash_on_vid_diff();
+    const crash_on_diff = get_config().crash_on_bad_cam_settings;
 
     var stream_parm : c.struct_v4l2_streamparm = std.mem.zeroes(c.struct_v4l2_streamparm);
     stream_parm.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -311,7 +327,7 @@ fn attempt_to_set_frame_rate(self: *Camera) !void {
     }
 
     stream_parm.parm.capture.timeperframe.numerator = 1;
-    stream_parm.parm.capture.timeperframe.denominator = config.get_camera_frame_rate();
+    stream_parm.parm.capture.timeperframe.denominator = get_config().video_frame_rate;
 
     if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_S_PARM, &stream_parm)) {
         debug.print("Failed to set frame rate.\n", .{});
@@ -329,10 +345,10 @@ fn attempt_to_set_frame_rate(self: *Camera) !void {
             return error.ErrorGettingCameraParams;
         }
     }
-    debug.print("Requested frame rate: {d} fps\n", .{config.get_camera_frame_rate()});
+    debug.print("Requested frame rate: {d} fps\n", .{get_config().video_frame_rate});
     const actual_frame_rate = @divFloor(stream_parm.parm.capture.timeperframe.denominator, stream_parm.parm.capture.timeperframe.numerator);
     debug.print("Actual frame rate: {d} fps\n", .{actual_frame_rate});
-    if ((actual_frame_rate != config.get_camera_frame_rate()) and
+    if ((actual_frame_rate != get_config().video_frame_rate) and
         (crash_on_diff))
     {
         debug.print("Frame rate after setting does not match requested frame rate.\n", .{});

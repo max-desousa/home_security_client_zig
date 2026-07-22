@@ -1,7 +1,7 @@
 const std = @import("std");
 const sync_data = @import("sync_data");
 const debug = @import("debug");
-const config = @import("config");
+const get_config = @import("config").configz;
 const sys = @import("sys");
 
 pub fn upload_thread(
@@ -65,7 +65,7 @@ pub fn upload_thread(
         }
         std.debug.print("Done printing list of detected files\n", .{});
 
-        const delay = config.get_upload_delay();
+        const delay = get_config().upload_delay;
         if (delay > 0) {
             std.Io.sleep(io, .fromSeconds(@intCast(delay)), .real) catch continue;
         }
@@ -229,8 +229,8 @@ fn generate_uri_string_for_archival(
         buffer,
         "http://{s}:{d}/archival{s}/{s}",
         .{
-            config.get_server_address(), 
-            config.get_server_port(),
+            get_config().server_ip_address, 
+            get_config().port_of_the_server,
             string_camera_name,
             string_file_name
         }

@@ -39,8 +39,13 @@ pub const FileCleanupStrategy = enum {
     GeneralUnprotected,
 };
 
+pub var Config : *Configuration = undefined; 
 
-const Config = struct {
+pub fn configz() *Configuration {
+    return Config;
+}
+
+const Configuration = struct {
     video_duration : u64,
     video_frame_rate : u16,
     video_width : u16,
@@ -75,11 +80,14 @@ pub fn establish_config(io : std.Io, allocator : std.mem.Allocator) !void {
         try make_default_config(io);
     }
 
-    var parser = toml.Parser(Config).init(allocator);
-    defer parser.deinit();
+    var parser = toml.Parser(Configuration).init(allocator);
 
     var result = try parser.parseFile(io, CONFIG_FILE_NAME);
-    _ = &result;
+
+    std.debug.print("Internal Value = {d}\n", .{ result.value.video_duration });
+    std.debug.print("Internal Value = {s}\n", .{result.value.camera_device_name});
+
+    Config = &result.value;
 }
 
 

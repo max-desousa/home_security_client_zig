@@ -1,5 +1,5 @@
 const std = @import("std");
-const config = @import("config");
+const get_config = @import("config").configz;
 
 const DAY_IN_SECONDS : u64 = 86_400;
 
@@ -58,7 +58,7 @@ pub fn old_get_windowed_time_for_filename_string(
         return error.InvalidTimeWindow;
     }
 
-    const raw_epoch_seconds_start = try get_current_epoch_sec(io, config.get_utc_offset_seconds());
+    const raw_epoch_seconds_start = try get_current_epoch_sec(io, get_config().utc_offset_seconds);
     const raw_epoch_seconds_end = raw_epoch_seconds_start + duration;
 
     const start_epoch_seconds : std.time.epoch.EpochSeconds = .{ .secs = raw_epoch_seconds_start };
@@ -184,7 +184,7 @@ pub fn get_windowed_time_for_filename_string(
         return error.TooLongDurationWhenUsingSubMinuteArchitecture;
     }
 
-    const raw_epoch_seconds_start = try get_current_epoch_sec(io, config.get_utc_offset_seconds());
+    const raw_epoch_seconds_start = try get_current_epoch_sec(io, get_config().utc_offset_seconds);
 
     const start_epoch_seconds : std.time.epoch.EpochSeconds = .{ .secs = raw_epoch_seconds_start };
 
@@ -243,7 +243,7 @@ pub fn is_time_in_current_window(io : std.Io, file_name: []const u8) !bool {
     _, const file_name_window_string = std.mem.cut(u8, string_with_extension_cut, ".") orelse return error.BadFileNameNoPeriod2;
 
     // Create epoch object for current time (can err due to posix call)
-    const raw_current_epoch_sec = try get_current_epoch_sec(io, config.get_utc_offset_seconds());
+    const raw_current_epoch_sec = try get_current_epoch_sec(io, get_config().utc_offset_seconds);
     const epoch_seconds : std.time.epoch.EpochSeconds = .{ .secs = raw_current_epoch_sec };
 
 //YYYY
