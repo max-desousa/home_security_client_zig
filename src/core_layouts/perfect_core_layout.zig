@@ -19,11 +19,11 @@ var DEBUG_ALLOCATOR : std.heap.DebugAllocator(.{}) = .init;
 
 pub fn perfect_core_layout() !void {
     const allocator : std.mem.Allocator = comptime switch (builtin.mode) {
-        .Debug => DEBUG_ALLOCATOR.allocator(),
+        .debug => DEBUG_ALLOCATOR.allocator(),
         else => std.heap.c_allocator,
     };
     defer {
-        if (.Debug == builtin.mode) {
+        if (.debug == builtin.mode) {
             _ = DEBUG_ALLOCATOR.deinit();
         }
     }
