@@ -4,6 +4,8 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const number_of_cores = b.option(usize, "number_of_cores", "Number of CPU cores to use for building") orelse std.Thread.getCpuCount() catch 1;
+
     const translate_c = b.addTranslateC(.{
         .root_source_file = b.path("src/imports/c_imports.h"),
         .target = target,
@@ -91,30 +93,24 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    const mod_cores = b.createModule(.{
-        .root_source_file = b.path("src/core_layouts/root_cores.zig"),
-        .target = target,
-        .optimize = optimize,
-        .imports = &.{
-            .{ .name = "camera", .module = mod_camera },
-            .{ .name = "sync_data", .module = mod_sync_data },
-            .{ .name = "encoding", .module = mod_encoding },
-            .{ .name = "debug", .module = mod_debug },
-            .{ .name = "config", .module = mod_config },
-            .{ .name = "net", .module = mod_net },
-            .{ .name = "sys", .module = mod_sys },
-        },
-    });
-
     const exe = b.addExecutable(.{
         .name = "zig_home_security_client",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
+            .root_source_file = switch (number_of_cores) {
+                1 => b.path("src/core_layouts/single_core_layout.zig"),
+                2...7 => b.path("src/core_layouts/restricted_core_layout.zig"),
+                else => b.path("src/core_layouts/perfect_core_layout.zig"),
+            },
             .target = target,
             .optimize = optimize,
             .imports = &.{
-                .{ .name = "core_layouts", .module = mod_cores },
+                .{ .name = "camera", .module = mod_camera },
+                .{ .name = "sync_data", .module = mod_sync_data },
+                .{ .name = "encoding", .module = mod_encoding },
                 .{ .name = "debug", .module = mod_debug },
+                .{ .name = "config", .module = mod_config },
+                .{ .name = "net", .module = mod_net },
+                .{ .name = "sys", .module = mod_sys },
             },
         }),
     });
@@ -124,13 +120,6 @@ pub fn build(b: *std.Build) void {
     exe.root_module.linkSystemLibrary("libavcodec", .{});
     exe.root_module.linkSystemLibrary("libavutil", .{});
     exe.root_module.linkSystemLibrary("libswscale", .{});
-
-    const options = b.addOptions();
-    const number_of_cores = b.option(usize, "number_of_cores", "Number of CPU cores to use for building") orelse std.Thread.getCpuCount() catch 1;
-
-    options.addOption(usize, "number_of_cores", number_of_cores);
-
-    exe.root_module.addOptions("config", options);
 
     b.installArtifact(exe);
 
