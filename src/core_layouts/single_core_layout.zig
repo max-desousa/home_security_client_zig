@@ -2,7 +2,7 @@ const std = @import("std");
 const camera = @import("camera");
 const debug = @import("debug");
 
-pub fn single_core_layout() !void {
+pub fn main() !void {
     // Implementation for single core layout
     debug.print("Using single core layout\n", .{});
 
