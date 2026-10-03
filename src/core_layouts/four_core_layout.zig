@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const camera = @import("camera");
+const Camera = @import("camera");
 const encoding = @import("encoding");
 const debug = @import("debug");
 const sync = @import("sync_data");
@@ -46,7 +46,7 @@ pub fn main() !void {
 
     // Try to create camera object (making sure system works) before starting 
     // multithreaded portion.
-    var camera_obj = try camera.init(config.get_camera_hardware_name(), allocator);
+    var camera_obj = try Camera.init(config.get_camera_hardware_name(), allocator);
     defer camera_obj.deinit();
 
     var group : std.Io.Group = .init;
@@ -61,9 +61,21 @@ pub fn main() !void {
     var frames_to_requeue : std.Io.Queue(usize) = .init(&buffer_for_frames_to_requeue);
 
     try group.concurrent(io, encoding.encoding_thread, .{ io, allocator, camera_obj.frame_metadata, &frames_to_encode, &frames_to_requeue });
-    try group.concurrent(io, camera.infinite_capture, .{&camera_obj, io, &frames_to_encode, &frames_to_requeue });
+    try group.concurrent(io, Camera.infinite_capture, .{&camera_obj, io, &frames_to_encode, &frames_to_requeue });
     try group.concurrent(io, net.upload_thread, .{ allocator, io, &sync_data });
     if (.NoDeletions != config.get_cleanup_stategy()) {
         try group.concurrent(io, sys.file_cleanup_thread, .{ allocator, io });
     }
+    @compileError("This function should not be compiled");
+}
+
+pub fn start(
+    io : std.Io,
+    allocator : std.mem.Allocator,
+    camera : *Camera,
+) !void {
+    _ = &io;
+    _ = &allocator;
+    _ = &camera;
+    std.debug.print("This is the perfect core layout\n", .{});
 }
