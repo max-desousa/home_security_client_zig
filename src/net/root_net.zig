@@ -63,7 +63,7 @@ pub fn upload_thread(
             std.log.err("Iterator failed with error: {any}\n", .{ err });
             @panic("TBD - what do I do when the iterator fails?");
         }
-        std.debug.print("Done printing list of detected files\n", .{});
+        std.log.debug("Done printing list of detected files", .{});
 
         const delay = config.get_upload_delay();
         if (delay > 0) {
@@ -71,7 +71,7 @@ pub fn upload_thread(
         }
     }
 
-    debug.print("Ending upload thread due to encoder error: {any}\n", .{ shared_data.sync_error });
+    std.log.debug("Ending upload thread due to encoder error: {any}", .{ shared_data.sync_error });
 }
 
 fn upload_video(
@@ -79,7 +79,7 @@ fn upload_video(
     io : std.Io,
     path : [:0]const u8
 ) !void {
-    debug.print("Uploading file: {s}\n", .{ path });
+    std.log.debug("Uploading file: {s}", .{ path });
 
     var client :std.http.Client = .{ .allocator = allocator, .io = io };
     defer client.deinit();

@@ -1,5 +1,4 @@
 const std = @import("std");
-const debug = @import("debug");
 
 //Buffer used by cameras.
 
@@ -67,7 +66,7 @@ pub const CameraData = struct {
 
     pub fn get_first(self: *Self, io : std.Io) ?u8 {
         self.mutex.lock(io) catch |inner_err| {
-            debug.print("Error locking mutex: {any}\n", .{inner_err});
+            std.log.debug("Error locking mutex: {any}", .{inner_err});
         };
         defer self.mutex.unlock(io);
 

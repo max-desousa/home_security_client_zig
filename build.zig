@@ -40,19 +40,10 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    const mod_debug = b.createModule(.{
-        .root_source_file = b.path("src/debug/root_debug.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
     const mod_sync_data = b.createModule(.{
         .root_source_file = b.path("src/global/sync_data.zig"),
         .target = target,
         .optimize = optimize,
-        .imports = &.{
-            .{ .name = "debug", .module = mod_debug },
-        },
     });
 
     const mod_net = b.createModule(.{
@@ -61,7 +52,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "sync_data", .module = mod_sync_data },
-            .{ .name = "debug", .module = mod_debug },
             .{ .name = "config", .module = mod_config },
             .{ .name = "sys", .module = mod_sys },
         },
@@ -83,7 +73,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "sync_data", .module = mod_sync_data },
-            .{ .name = "debug", .module = mod_debug },
             .{ .name = "v4l", .module = mod_c_v4l },
             .{ .name = "config", .module = mod_config },
         },
@@ -94,7 +83,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .imports = &.{
-            .{ .name = "debug", .module = mod_debug },
             .{ .name = "sync_data", .module = mod_sync_data },
             .{ .name = "c_imports", .module = mod_c_ffmpeg },
             .{ .name = "config", .module = mod_config },

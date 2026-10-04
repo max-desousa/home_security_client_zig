@@ -1,6 +1,5 @@
 // src/encoding/root_encoding.zig
 const std = @import("std");
-const debug = @import("debug");
 const sync = @import("sync_data");
 const config = @import("config");
 const c = @import("c_imports");
@@ -21,7 +20,7 @@ pub fn encoding_thread(
     frames_to_encode : *std.Io.Queue(usize),
     frames_to_requeue : *std.Io.Queue(usize),
 ) void {
-    debug.print("\tLooking for H.264 encoder...\n", .{});
+    std.log.debug("\tLooking for H.264 encoder...", .{});
 
     //Small convenience setup step... ffmpeg has noisy logging. This suppresses that.
     c.av_log_set_level(c.AV_LOG_QUIET);
@@ -91,7 +90,7 @@ pub fn encoding_thread(
         ) catch break;
     }
 
-    debug.print("Encoding thread was ended due to encountering an error...\n", .{});
+    std.log.debug("Encoding thread was ended due to encountering an error...", .{});
     frames_to_requeue.close(io);
 }
 
@@ -163,14 +162,14 @@ fn create_video(
 
     // ------ Open file ------
     if (c.avio_open(@ptrCast(&output_fmt_ctx.pb), file_name, c.AVIO_FLAG_WRITE) < 0) {
-        debug.print("Could not open output.mp4 for writing\n", .{});
+        std.log.debug("Could not open output.mp4 for writing", .{});
         return;
     }
     defer _ = c.avio_closep(@ptrCast(&output_fmt_ctx.pb));
 
     // ------ Write file header ------
     if (c.avformat_write_header(@ptrCast(output_fmt_ctx), null) < 0) {
-        debug.print("avformat_write_header failed\n", .{});
+        std.log.debug("avformat_write_header failed", .{});
         return;
     }
 
@@ -186,7 +185,7 @@ fn create_video(
     while (still_in_relevant_time_window) {
         defer {
             still_in_relevant_time_window = time.is_time_in_current_window(io, file_name) catch |err| blk: {
-                debug.print("Error checking time window: {any}\n", .{err});
+                std.log.debug("Error checking time window: {any}", .{err});
                 break :blk false;
             };
         }
@@ -306,5 +305,5 @@ fn create_video(
         std.debug.print("Exiting encoding thread due to renaming issues: {any}\n", .{ err });
         return error.CouldNotRenameFile;
     };
-    debug.print("Finished – output.mp4 is ready and playable!\n", .{});
+    std.log.debug("Finished – output.mp4 is ready and playable!", .{});
 }
