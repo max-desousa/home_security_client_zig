@@ -1,10 +1,13 @@
 const std = @import("std");
-const camera = @import("camera");
-const debug = @import("debug");
+const Camera = @import("camera");
 
-pub fn main() !void {
-    // Implementation for single core layout
-    debug.print("Using single core layout\n", .{});
-
-    try camera.init();
+pub fn start(
+    io : std.Io,
+    allocator : std.mem.Allocator,
+    camera : *Camera,
+) !void {
+    _ = &io;
+    _ = &allocator;
+    _ = &camera;
+    unreachable;
 }

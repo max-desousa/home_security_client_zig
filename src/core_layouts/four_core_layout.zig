@@ -12,10 +12,6 @@ pub fn start(
     allocator : std.mem.Allocator,
     camera : *Camera,
 ) !void {
-    // Establish/Read config file to determine specific behaviors.
-    config.establish_config(io) catch {
-        @panic("Something went wrong with the file");
-    };
     var group : std.Io.Group = .init;
     defer group.await(io) catch {};
 
