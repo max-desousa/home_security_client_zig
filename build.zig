@@ -109,8 +109,13 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .imports = &.{
-            .{ .name = "camera", .module = mod_camera },
             .{ .name = "options", .module = mod_options },
+            .{ .name = "camera", .module = mod_camera },
+            .{ .name = "encoding", .module = mod_encoding },
+            .{ .name = "sync_data", .module = mod_sync_data },
+            .{ .name = "config", .module = mod_config },
+            .{ .name = "net", .module = mod_net },
+            .{ .name = "sys", .module = mod_sys },
         },
     });
 

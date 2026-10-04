@@ -7,10 +7,6 @@ pub fn startSecurityCamera(
     allocator : std.mem.Allocator,
     camera : *Camera,
 ) !void {
-    _ = &io;
-    _ = &allocator;
-    _ = &camera;
-
     const start = comptime switch (options.numberOfCores) {
         1 => @import("single_core_layout.zig").start,
         2 => @import("two_core_layout.zig").start,
