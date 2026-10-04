@@ -10,13 +10,20 @@ pub fn build(b: *std.Build) void {
     options.addOption(usize, "numberOfCores", number_of_cores);
     const mod_options = options.createModule();
 
-    const translate_c = b.addTranslateC(.{
-        .root_source_file = b.path("src/imports/c_imports.h"),
+    const translate_c_ffmpeg = b.addTranslateC(.{
+        .root_source_file = b.path("src/imports/c_imports_ffmpeg.h"),
         .target = target,
         .optimize = optimize,
     });
-    translate_c.linkSystemLibrary("libavcodec", .{});
-    const mod_c_imports = translate_c.createModule();
+    translate_c_ffmpeg.linkSystemLibrary("libavcodec", .{});
+    const mod_c_ffmpeg = translate_c_ffmpeg.createModule();
+
+    const translate_c_v4l = b.addTranslateC(.{
+        .root_source_file = b.path("src/imports/c_imports_v4l.h"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const mod_c_v4l = translate_c_v4l.createModule();
 
     const mod_config = b.createModule(.{
         .root_source_file = b.path("src/config/root_config.zig"),
@@ -44,7 +51,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .imports = &.{
-            .{ .name = "c_imports", .module = mod_c_imports },
             .{ .name = "debug", .module = mod_debug },
         },
     });
@@ -78,10 +84,9 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "sync_data", .module = mod_sync_data },
             .{ .name = "debug", .module = mod_debug },
-            .{ .name = "c_imports", .module = mod_c_imports },
+            .{ .name = "v4l", .module = mod_c_v4l },
             .{ .name = "config", .module = mod_config },
         },
-        .link_libc = true,
     });
 
     const mod_encoding = b.createModule(.{
@@ -91,13 +96,12 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "debug", .module = mod_debug },
             .{ .name = "sync_data", .module = mod_sync_data },
-            .{ .name = "c_imports", .module = mod_c_imports },
+            .{ .name = "c_imports", .module = mod_c_ffmpeg },
             .{ .name = "config", .module = mod_config },
             .{ .name = "time", .module = mod_time },
             .{ .name = "sys", .module = mod_sys },
             .{ .name = "camera", .module = mod_camera },
         },
-        .link_libc = true,
     });
     mod_encoding.linkSystemLibrary("libavformat", .{});
     mod_encoding.linkSystemLibrary("libavcodec", .{});

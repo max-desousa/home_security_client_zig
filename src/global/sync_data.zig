@@ -1,5 +1,4 @@
 const std = @import("std");
-const c = @import("c_imports");
 const debug = @import("debug");
 
 //Buffer used by cameras.

@@ -3,7 +3,7 @@ pub const Camera = @This();
 const std = @import("std");
 const debug = @import("debug");
 const sync = @import("sync_data");
-const c = @import("c_imports");
+const v4l = @import("v4l");
 const config = @import("config");
 
 pub const MemoryMappedFrame = struct {
@@ -15,7 +15,7 @@ pub const MemoryMappedFrame = struct {
     bytes_used: u32 = 0,
     //Timestamp for the frame to assist encoding
     //If there is lag, the timestamp should help stretch frames for smoother video
-    time_stamp: c.struct_timeval = std.mem.zeroes(c.struct_timeval),
+    time_stamp: v4l.struct_timeval = std.mem.zeroes(v4l.struct_timeval),
 };
 
 file_descriptor: ?c_int,
@@ -164,19 +164,19 @@ fn check_if_device_exists(self: Camera) bool {
 
 fn device_supports_video(self: Camera) bool {
     if (self.file_descriptor) |fd| {
-        var cap: c.struct_v4l2_capability = std.mem.zeroes(c.struct_v4l2_capability);
+        var cap: v4l.struct_v4l2_capability = std.mem.zeroes(v4l.struct_v4l2_capability);
 
-        if (-1 == xioctl(fd, c.VIDIOC_QUERYCAP, &cap)) {
+        if (-1 == xioctl(fd, v4l.VIDIOC_QUERYCAP, &cap)) {
             debug.print("Failed to query device capabilities.\n", .{});
             return false;
         }
 
-        if (0 == (cap.capabilities & c.V4L2_CAP_VIDEO_CAPTURE)) {
+        if (0 == (cap.capabilities & v4l.V4L2_CAP_VIDEO_CAPTURE)) {
             debug.print("Device does not support video capture.\n", .{});
             return false;
         }
 
-        if (0 == (cap.capabilities & c.V4L2_CAP_STREAMING)) {
+        if (0 == (cap.capabilities & v4l.V4L2_CAP_STREAMING)) {
             debug.print("Device does not support streaming I/O (our default method for handling cameras... at least for now.\n", .{});
             return false;
         }
@@ -190,7 +190,7 @@ fn device_supports_video(self: Camera) bool {
 fn open_device(self: *Camera) !void {
     var device: c_int = -1;
     if (self.device_name) |name| {
-        const flags = std.c.O{ .ACCMODE = .RDWR, .NONBLOCK = true };
+        const flags = std.c.O{ .ACCMODE = .RDWR };
         device = std.c.open(name, flags, @as(c_int, 0));
         if (-1 == device) {
             return error.OpenDeviceFailed;
@@ -207,23 +207,23 @@ fn configure_device(self: *Camera) !void {
     {
         return error.NullValuesInDeviceObject;
     }
-    var cropcap: c.struct_v4l2_cropcap = std.mem.zeroes(c.struct_v4l2_cropcap);
-    var crop: c.struct_v4l2_crop = std.mem.zeroes(c.struct_v4l2_crop);
-    var fmt: c.v4l2_format = std.mem.zeroes(c.v4l2_format);
+    var cropcap: v4l.struct_v4l2_cropcap = std.mem.zeroes(v4l.struct_v4l2_cropcap);
+    var crop: v4l.struct_v4l2_crop = std.mem.zeroes(v4l.struct_v4l2_crop);
+    var fmt: v4l.v4l2_format = std.mem.zeroes(v4l.v4l2_format);
 
     // Setting the crop of the sensor to try and ensure better imaging.
-    cropcap.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    if (0 == xioctl(self.file_descriptor.?, c.VIDIOC_CROPCAP, &cropcap)) {
-        crop.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    cropcap.type = v4l.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    if (0 == xioctl(self.file_descriptor.?, v4l.VIDIOC_CROPCAP, &cropcap)) {
+        crop.type = v4l.V4L2_BUF_TYPE_VIDEO_CAPTURE;
         crop.c = cropcap.defrect;
 
-        if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_S_CROP, &crop)) {
+        if (-1 == xioctl(self.file_descriptor.?, v4l.VIDIOC_S_CROP, &crop)) {
             const c_errno = std.c._errno().*;
 
-            if ((c.EINVAL == c_errno) or
-                (c.ENOTTY == c_errno) or
-                (c.ENODEV == c_errno) or
-                (c.EPERM == c_errno))
+            if ((v4l.EINVAL == c_errno) or
+                (v4l.ENOTTY == c_errno) or
+                (v4l.ENODEV == c_errno) or
+                (v4l.EPERM == c_errno))
             {
                 std.log.warn("Cropping not supported on this device.", .{});
             } else {
@@ -236,21 +236,21 @@ fn configure_device(self: *Camera) !void {
         std.log.err("Failed to get crop capabilities.\n", .{});
     }
 
-    fmt.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    fmt.type = v4l.V4L2_BUF_TYPE_VIDEO_CAPTURE;
     fmt.fmt.pix.width = config.get_camera_width();
     fmt.fmt.pix.height = config.get_camera_height();
-    fmt.fmt.pix.pixelformat = c.V4L2_PIX_FMT_YUYV;
+    fmt.fmt.pix.pixelformat = v4l.V4L2_PIX_FMT_YUYV;
 
-    if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_S_FMT, &fmt)) {
+    if (-1 == xioctl(self.file_descriptor.?, v4l.VIDIOC_S_FMT, &fmt)) {
         debug.print("Failed to set pixel format.\n", .{});
         return error.SetFormatFailed;
     }
 
     if (config.get_crash_on_vid_diff()) {
         debug.print("Set to validate camera settings... checking now\n", .{});
-        var validated_fmt: c.v4l2_format = std.mem.zeroes(c.v4l2_format);
-        validated_fmt.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_G_FMT, &validated_fmt)) {
+        var validated_fmt: v4l.v4l2_format = std.mem.zeroes(v4l.v4l2_format);
+        validated_fmt.type = v4l.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        if (-1 == xioctl(self.file_descriptor.?, v4l.VIDIOC_G_FMT, &validated_fmt)) {
             debug.print("Could not get video settings\n", .{});
             return error.CouldNotValidateCameraSettings;
         }
@@ -278,14 +278,14 @@ fn configure_device(self: *Camera) !void {
 fn attempt_to_set_frame_rate(self: *Camera) !void {
     const crash_on_diff = config.get_crash_on_vid_diff();
 
-    var stream_parm : c.struct_v4l2_streamparm = std.mem.zeroes(c.struct_v4l2_streamparm);
-    stream_parm.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_G_PARM, &stream_parm)) {
+    var stream_parm : v4l.struct_v4l2_streamparm = std.mem.zeroes(v4l.struct_v4l2_streamparm);
+    stream_parm.type = v4l.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    if (-1 == xioctl(self.file_descriptor.?, v4l.VIDIOC_G_PARM, &stream_parm)) {
         debug.print("Failed to get current frame rate settings.\n", .{});
         return error.ErrorGettingCameraParams;
     }
 
-    const dev_supports_frame_rate : bool = (stream_parm.parm.capture.capability & c.V4L2_CAP_TIMEPERFRAME) != 0;
+    const dev_supports_frame_rate : bool = (stream_parm.parm.capture.capability & v4l.V4L2_CAP_TIMEPERFRAME) != 0;
 
     if ((!dev_supports_frame_rate) and 
         (crash_on_diff)) {
@@ -299,10 +299,10 @@ fn attempt_to_set_frame_rate(self: *Camera) !void {
         return;
     }
 
-    stream_parm = std.mem.zeroes(c.struct_v4l2_streamparm);
-    stream_parm.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    stream_parm = std.mem.zeroes(v4l.struct_v4l2_streamparm);
+    stream_parm.type = v4l.V4L2_BUF_TYPE_VIDEO_CAPTURE;
 
-    if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_G_PARM, &stream_parm)) {
+    if (-1 == xioctl(self.file_descriptor.?, v4l.VIDIOC_G_PARM, &stream_parm)) {
         debug.print("Failed to get parameters to initialize attempt to set frame rate.\n", .{});
         if (crash_on_diff) {
             return error.ErrorGettingCameraParams;
@@ -313,7 +313,7 @@ fn attempt_to_set_frame_rate(self: *Camera) !void {
     stream_parm.parm.capture.timeperframe.numerator = 1;
     stream_parm.parm.capture.timeperframe.denominator = config.get_camera_frame_rate();
 
-    if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_S_PARM, &stream_parm)) {
+    if (-1 == xioctl(self.file_descriptor.?, v4l.VIDIOC_S_PARM, &stream_parm)) {
         debug.print("Failed to set frame rate.\n", .{});
         if (crash_on_diff) {
             return error.ErrorSettingFrameRate;
@@ -321,9 +321,9 @@ fn attempt_to_set_frame_rate(self: *Camera) !void {
         return;
     }
     
-    stream_parm = std.mem.zeroes(c.struct_v4l2_streamparm);
-    stream_parm.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_G_PARM, &stream_parm)) {
+    stream_parm = std.mem.zeroes(v4l.struct_v4l2_streamparm);
+    stream_parm.type = v4l.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    if (-1 == xioctl(self.file_descriptor.?, v4l.VIDIOC_G_PARM, &stream_parm)) {
         debug.print("Failed to get frame rate after setting it.\n", .{});
         if (crash_on_diff) {
             return error.ErrorGettingCameraParams;
@@ -348,12 +348,12 @@ fn initialize_mmap(self: *Camera) !void {
     }
 
     //Initializing request for 32 buffers from camera.
-    var req: c.struct_v4l2_requestbuffers = std.mem.zeroes(c.struct_v4l2_requestbuffers);
+    var req: v4l.struct_v4l2_requestbuffers = std.mem.zeroes(v4l.struct_v4l2_requestbuffers);
     req.count = 32;
-    req.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    req.memory = c.V4L2_MEMORY_MMAP;
+    req.type = v4l.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    req.memory = v4l.V4L2_MEMORY_MMAP;
 
-    if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_REQBUFS, &req)) {
+    if (-1 == xioctl(self.file_descriptor.?, v4l.VIDIOC_REQBUFS, &req)) {
         debug.print("Failed to request buffer allocation via mmap.\n", .{});
         return error.RequestBuffersFailed;
     }
@@ -367,13 +367,13 @@ fn initialize_mmap(self: *Camera) !void {
     errdefer self.allocator.free(self.frame_metadata);
 
     for (0..req.count) |i| {
-        var query_buf: c.struct_v4l2_buffer = std.mem.zeroes(c.struct_v4l2_buffer);
+        var query_buf: v4l.struct_v4l2_buffer = std.mem.zeroes(v4l.struct_v4l2_buffer);
 
-        query_buf.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        query_buf.memory = c.V4L2_MEMORY_MMAP;
+        query_buf.type = v4l.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        query_buf.memory = v4l.V4L2_MEMORY_MMAP;
         query_buf.index = @intCast(i);
 
-        if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_QUERYBUF, &query_buf)) {
+        if (-1 == xioctl(self.file_descriptor.?, v4l.VIDIOC_QUERYBUF, &query_buf)) {
             debug.print("Failed to query buffer info.\n", .{});
             return error.QueryBufferFailed;
         }
@@ -418,13 +418,13 @@ fn start_capturing(self: Camera) !void {
 
     // Go through and queue all the buffers for v4l to store data in. 
     for (0..self.frame_metadata.len) |index| {
-        var buf: c.struct_v4l2_buffer = std.mem.zeroes(c.struct_v4l2_buffer);
+        var buf: v4l.struct_v4l2_buffer = std.mem.zeroes(v4l.struct_v4l2_buffer);
 
-        buf.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        buf.memory = c.V4L2_MEMORY_MMAP;
+        buf.type = v4l.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        buf.memory = v4l.V4L2_MEMORY_MMAP;
         buf.index = @intCast(index);
 
-        if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_QBUF, &buf)) {
+        if (-1 == xioctl(self.file_descriptor.?, v4l.VIDIOC_QBUF, &buf)) {
             debug.print("Failed to queue buffer {d}.\n", .{index});
             return error.QueueBufferFailed;
         }
@@ -432,8 +432,8 @@ fn start_capturing(self: Camera) !void {
 
     // Trigger the stream to allow the camera to start storing to those queued
     // buffers.
-    var vtype: c.enum_v4l2_buf_type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_STREAMON, &vtype)) {
+    var vtype: v4l.enum_v4l2_buf_type = v4l.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    if (-1 == xioctl(self.file_descriptor.?, v4l.VIDIOC_STREAMON, &vtype)) {
         debug.print("Failed to start video streaming.\n", .{});
         return error.StartStreamingFailed;
     }
@@ -441,31 +441,30 @@ fn start_capturing(self: Camera) !void {
 
 pub fn capture_single_frame(self: Camera) !?u8 {
     // Rudamentary check that object was initialized. 
-    if (null == self.file_descriptor) {
-        return error.BadStructInstance;
-    }
+    const camera_device = self.file_descriptor orelse return error.BadStructInstance;
 
-    var buf: c.struct_v4l2_buffer = std.mem.zeroes(c.struct_v4l2_buffer);
-    buf.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    buf.memory = c.V4L2_MEMORY_MMAP;
+    var buf: v4l.struct_v4l2_buffer = std.mem.zeroes(v4l.struct_v4l2_buffer);
+    buf.type = v4l.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    buf.memory = v4l.V4L2_MEMORY_MMAP;
 
-    if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_DQBUF, &buf)) {
-        if (c.EAGAIN == std.c._errno().*) {
-            return null;
+    if (-1 == xioctl(camera_device, v4l.VIDIOC_DQBUF, &buf)) {
+        if (v4l.EAGAIN == std.c._errno().*) {
+            //return null;
+            @panic("Camera should be blocking - according to v4l documentation this line should be unreachable (due to error EAGAIN when reading errno.");
         }
         debug.print("Failed to dequeue buffer.\n", .{});
         return error.DequeueBufferFailed;
     }
-    debug.print("Captured frame in buffer index {d}.\n", .{buf.index});
+    std.log.debug("Captured frame in buffer index {d}.", .{buf.index});
 
-    debug.print("Updating camera data for recent capture\n:", .{});
-    debug.print("\tUpdating buffer {d}'s bytes used (val = {d})...\n", .{ buf.index, buf.bytesused });
+    std.log.debug("Updating camera data for recent capture:", .{});
+    std.log.debug("\tUpdating buffer {d}'s bytes used (val = {d})...", .{ buf.index, buf.bytesused });
     self.frame_metadata[buf.index].bytes_used = buf.bytesused;
     //debug.print("\tUpdating buffer {d}'s timestamp...\n", .{buf.index});
     self.frame_metadata[buf.index].time_stamp = buf.timestamp;
-    debug.print("Just aquired timestamp: {d}.{d}\n", .{buf.timestamp.tv_sec, buf.timestamp.tv_usec});
+    std.log.debug("Just aquired timestamp: {d}.{d}", .{buf.timestamp.tv_sec, buf.timestamp.tv_usec});
 
-    debug.print("Sending Frame data for encoding...\n", .{});
+    std.log.debug("Sending Frame data for encoding...", .{});
     return @intCast(buf.index);
 }
 
@@ -478,12 +477,12 @@ pub fn capture_single_frame(self: Camera) !?u8 {
 //              ioctl wrapper for that indication.
 //##############################################################################
 fn release_buffer(self: Camera, buffer_index: u32) !void {
-    var buf: c.struct_v4l2_buffer = std.mem.zeroes(c.struct_v4l2_buffer);
-    buf.type = c.V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    buf.memory = c.V4L2_MEMORY_MMAP;
+    var buf: v4l.struct_v4l2_buffer = std.mem.zeroes(v4l.struct_v4l2_buffer);
+    buf.type = v4l.V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    buf.memory = v4l.V4L2_MEMORY_MMAP;
     buf.index = buffer_index;
 
-    if (-1 == xioctl(self.file_descriptor.?, c.VIDIOC_QBUF, &buf)) {
+    if (-1 == xioctl(self.file_descriptor.?, v4l.VIDIOC_QBUF, &buf)) {
         debug.print("Failed to re-queue buffer.\n", .{});
         return error.RequeueBufferFailed;
     }
@@ -491,13 +490,13 @@ fn release_buffer(self: Camera, buffer_index: u32) !void {
 
 //==============================================================================
 // helper function suggested by ai due to ioctl being interruptible
-//fn xioctl(fd: c_int, request: c_ulong, arg: *c.v4l2_capability) c_int {
+//fn xioctl(fd: c_int, request: c_ulong, arg: *v4l.v4l2_capability) c_int {
 //==============================================================================
 fn xioctl(fd: c_int, request: c_ulong, arg: *anyopaque) c_int {
     var r: c_int = -1;
-    r = c.ioctl(fd, request, arg);
-    while (-1 == r and std.c._errno().* == c.EINTR) {
-        r = c.ioctl(fd, request, arg);
+    r = v4l.ioctl(fd, request, arg);
+    while (-1 == r and std.c._errno().* == v4l.EINTR) {
+        r = v4l.ioctl(fd, request, arg);
     }
     return r;
 }
