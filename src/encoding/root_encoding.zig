@@ -19,6 +19,7 @@ pub fn encoding_thread(
     frame_data : []camera.MemoryMappedFrame,
     frames_to_encode : *std.Io.Queue(usize),
     frames_to_requeue : *std.Io.Queue(usize),
+    upload_flag : *std.atomic.Value(bool),
 ) void {
     std.log.debug("\tLooking for H.264 encoder...", .{});
 
@@ -88,6 +89,8 @@ pub fn encoding_thread(
             frames_to_requeue,
             frame_data,
         ) catch break;
+
+        upload_flag.store(true, .seq_cst);
     }
 
     std.log.debug("Encoding thread was ended due to encountering an error...", .{});

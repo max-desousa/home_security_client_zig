@@ -53,7 +53,7 @@ const FIELD_SERVER_ADDRESS = "[ip address of the server]";
 const FIELD_SERVER_PORT = "[port of the server]";
 const FIELD_MEMORY_ALLOC = "[amount of memory for local storage]";
 const FIELD_CLEANUP_STRATEGY = "[strategy for cleanup (lookup options)]";
-const FIELD_UPLOAD_DELAY = "[upload: delay seconds]";
+const FIELD_UPLOAD_DELAY = "[upload delay multiplier]";
 
 
 // Variables backing global tracking of states
@@ -77,7 +77,7 @@ var VALUE_MEMORY_ALLOC : u64 = undefined;
 var BUFFER_FOR_CLEANUP_STRATEGY : [64]u8 = undefined;
 var STRING_FOR_CLEANUP_STRATEGY : []u8 = BUFFER_FOR_CLEANUP_STRATEGY[0..0];
 var VALUE_CLEANUP_STRATEGY : FileCleanupStrategy = undefined;
-var VALUE_UPLOAD_DELAY : u64 = 30;
+var VALUE_UPLOAD_DELAY : f64 = 1.1;
 
 
 //Getters to make the data immutable to consumers of the module. 
@@ -134,8 +134,14 @@ pub fn get_cleanup_stategy() FileCleanupStrategy {
     return VALUE_CLEANUP_STRATEGY;
 }
 
-pub fn get_upload_delay() u64 {
-    return VALUE_UPLOAD_DELAY;
+pub fn get_upload_delay_milis() i64 {
+    if (@as(@TypeOf(VALUE_UPLOAD_DELAY), 0) == VALUE_UPLOAD_DELAY) {
+        return 0;
+    }
+    const duration_f64 : f64 = @floatFromInt(VALUE_VIDEO_DURATION);
+    const delay_f64 : f64 = ((1000.0 * duration_f64) * VALUE_UPLOAD_DELAY);
+
+    return @as(i64, @intFromFloat(delay_f64));
 }
 
 
@@ -240,7 +246,7 @@ fn parse_file(file : std.Io.File, io : std.Io) !void {
             }
         }
         else if (std.mem.eql(u8, before, FIELD_UPLOAD_DELAY)) {
-            VALUE_UPLOAD_DELAY = try std.fmt.parseInt(u64, after, 10);
+            VALUE_UPLOAD_DELAY = try std.fmt.parseFloat(f64, after);
         }
         else {
             return error.InvalidOptionInFile;
@@ -318,7 +324,7 @@ fn make_default_config(io : std.Io) !void {
     VALUE_CLEANUP_STRATEGY = FileCleanupStrategy.GeneralUnprotected;
     try writer.interface.print("{s} = GeneralUnprotected\n", .{ FIELD_CLEANUP_STRATEGY });
 
-    VALUE_UPLOAD_DELAY = 30;
+    VALUE_UPLOAD_DELAY = 1.1;
     try writer.interface.print("{s} = {d}\n", .{ FIELD_UPLOAD_DELAY, VALUE_UPLOAD_DELAY });
 
     try writer.end();

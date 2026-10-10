@@ -1,6 +1,7 @@
 const std = @import("std");
 const config = @import("config");
 const flags = @import("flags");
+const net = @import("net");
 
 pub const FOLDER_FOR_FILES_TO_ARCHIVE = "ToArchive";
 pub const FOLDER_FOR_ALREADY_ARCHIVED_FILES = "Archived";

@@ -4,74 +4,65 @@ const debug = @import("debug");
 const config = @import("config");
 const sys = @import("sys");
 
-pub fn upload_thread(
-    allocator : std.mem.Allocator,
+pub fn upload_all_possible_videos(
     io : std.Io,
-    shared_data : *sync_data.SynchronousData,
-) void {
-    while (null == shared_data.sync_error) {
-        const iterable_dir = std.Io.Dir.openDir(
-            .cwd(), 
-            io, 
-            sys.PATH_TO_TO_ARCHIVE_DIR,
-            .{
-                .iterate = true,
-                .follow_symlinks = false,
-            },
-        ) catch @panic("TBD - what do I do when folder cannot be opened?");
-        defer iterable_dir.close(io);
+    allocator : std.mem.Allocator,
+) !void {
+    const iterable_dir = std.Io.Dir.openDir(
+        .cwd(), 
+        io, 
+        sys.PATH_TO_TO_ARCHIVE_DIR,
+        .{
+            .iterate = true,
+            .follow_symlinks = false,
+        },
+    ) catch @panic("TBD - what do I do when folder cannot be opened?");
+    defer iterable_dir.close(io);
 
-        var walker = std.Io.Dir.walk(iterable_dir, allocator) catch @panic("TBD - what do I do when walker won't initialize?");
-        defer walker.deinit();
+    var walker = std.Io.Dir.walk(iterable_dir, allocator) catch @panic("TBD - what do I do when walker won't initialize?");
+    defer walker.deinit();
 
-        while (walker.next(io)) |nullable_entry| {
-            const entry = nullable_entry orelse break;
-            if (.file != entry.kind) {
-                continue;
-            }
-            if (1 < std.mem.count(u8, entry.path, ".")) {
-                continue;
-            }
+    while (walker.next(io)) |nullable_entry| {
 
-            var buffer_for_adjusted_path : [512]u8 = undefined;
-            const adjusted_path = adjust_path_due_to_iterator(
-                &buffer_for_adjusted_path,
-                entry.path,
-            ) catch {
-                continue;
-            };
-
-            upload_video(allocator, io, adjusted_path) catch {
-                //Continue to try next file if upload fails? Why just continue?
-                //Simple... file cleanup thread will cause panic if it must for
-                //the preservation of files, else it will gracefully delete.
-                //The only purpose in identifying the error state of uploading
-                //is to prevent other operations that would induce a crash or
-                //break our process (like moving a file to the folder of
-                //successfully archived videos if it hasn't been uploaded yet. 
-                std.log.warn("Uploading video failed", .{});
-                continue;
-            };
-
-            move_file_to_archived_folder(io, adjusted_path) catch |err| {
-                std.log.err("Error retrieved: {any}\n", .{ err });
-                std.log.debug("\tsubmitted path: {s}\n", .{ adjusted_path });
-                @panic("TBD - what do I want to do when \"move_file_to_archived_folder\" fails?");
-            };
+        const entry = nullable_entry orelse break;
+        if (.file != entry.kind) {
+            continue;
         }
-        else |err| {
-            std.log.err("Iterator failed with error: {any}\n", .{ err });
-            @panic("TBD - what do I do when the iterator fails?");
+        if (1 < std.mem.count(u8, entry.path, ".")) {
+            continue;
         }
-        std.log.debug("Done printing list of detected files", .{});
 
-        const delay = config.get_upload_delay();
-        if (delay > 0) {
-            std.Io.sleep(io, .fromSeconds(@intCast(delay)), .real) catch continue;
-        }
+        var buffer_for_adjusted_path : [512]u8 = undefined;
+        const adjusted_path = adjust_path_due_to_iterator(
+            &buffer_for_adjusted_path,
+            entry.path,
+        ) catch {
+            continue;
+        };
+
+        upload_video(allocator, io, adjusted_path) catch {
+            //Continue to try next file if upload fails? Why just continue?
+            //Simple... file cleanup thread will cause panic if it must for
+            //the preservation of files, else it will gracefully delete.
+            //The only purpose in identifying the error state of uploading
+            //is to prevent other operations that would induce a crash or
+            //break our process (like moving a file to the folder of
+            //successfully archived videos if it hasn't been uploaded yet. 
+            std.log.warn("Uploading video failed", .{});
+            continue;
+        };
+
+        move_file_to_archived_folder(io, adjusted_path) catch |err| {
+            std.log.err("Error retrieved: {any}\n", .{ err });
+            std.log.debug("\tsubmitted path: {s}\n", .{ adjusted_path });
+            @panic("TBD - what do I want to do when \"move_file_to_archived_folder\" fails?");
+        };
     }
-
-    std.log.debug("Ending upload thread due to encoder error: {any}", .{ shared_data.sync_error });
+    else |err| {
+        std.log.err("Iterator failed with error: {any}\n", .{ err });
+        @panic("TBD - what do I do when the iterator fails?");
+    }
+    std.log.debug("Done printing list of detected files", .{});
 }
 
 fn upload_video(

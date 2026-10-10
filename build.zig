@@ -56,7 +56,16 @@ pub fn build(b: *std.Build) void {
             .{ .name = "sys", .module = mod_sys },
         },
     });
-    _ = &mod_net;
+
+    const mod_amh = b.createModule(.{
+        .root_source_file = b.path("src/amh/root_artifacts_managment_and_handling.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "config", .module = mod_config },
+            .{ .name = "net", .module = mod_net },
+        },
+    });
 
     const mod_time = b.createModule(.{
         .root_source_file = b.path("src/time_date/root_time.zig"),
@@ -104,10 +113,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "options", .module = mod_options },
             .{ .name = "camera", .module = mod_camera },
             .{ .name = "encoding", .module = mod_encoding },
-            .{ .name = "sync_data", .module = mod_sync_data },
-            .{ .name = "config", .module = mod_config },
-            .{ .name = "net", .module = mod_net },
-            .{ .name = "sys", .module = mod_sys },
+            .{ .name = "amh", .module = mod_amh },
         },
     });
 
