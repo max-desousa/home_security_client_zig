@@ -4,12 +4,6 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const number_of_cores = b.option(usize, "number_of_cores", "Number of CPU cores to use for building") orelse std.Thread.getCpuCount() catch 1;
-
-    const options = b.addOptions();
-    options.addOption(usize, "numberOfCores", number_of_cores);
-    const mod_options = options.createModule();
-
     const translate_c_ffmpeg = b.addTranslateC(.{
         .root_source_file = b.path("src/imports/c_imports_ffmpeg.h"),
         .target = target,
@@ -105,18 +99,6 @@ pub fn build(b: *std.Build) void {
     mod_encoding.linkSystemLibrary("libavutil", .{});
     mod_encoding.linkSystemLibrary("libswscale", .{});
 
-    const mod_cores = b.createModule(.{
-        .root_source_file = b.path("src/core_layouts/root_core_layout.zig"),
-        .target = target,
-        .optimize = optimize,
-        .imports = &.{
-            .{ .name = "options", .module = mod_options },
-            .{ .name = "camera", .module = mod_camera },
-            .{ .name = "encoding", .module = mod_encoding },
-            .{ .name = "amh", .module = mod_amh },
-        },
-    });
-
     const mod_root = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
@@ -125,7 +107,8 @@ pub fn build(b: *std.Build) void {
             .{ .name = "config", .module = mod_config },
             .{ .name = "sys", .module = mod_sys },
             .{ .name = "camera", .module = mod_camera },
-            .{ .name = "coreLayouts", .module = mod_cores },
+            .{ .name = "encoding", .module = mod_encoding },
+            .{ .name = "amh", .module = mod_amh },
         },
     });
 
