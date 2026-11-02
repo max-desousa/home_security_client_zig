@@ -1,7 +1,19 @@
+//! Upload thread used by the four-core layout.
+//!
+//! Every pass calls `net.upload_all_possible_videos`. While `upload_flag` is
+//! false the thread sleeps for `config.get_upload_delay_milis` first. The
+//! encoder stores `true` after it closes a clip and nobody clears the flag,
+//! so from then on the thread uploads in a tight loop. Deletion of uploaded
+//! files is not called (`delete_according_to_config_settings` is commented out).
+
 const std = @import("std");
 const config = @import("config");
 const net = @import("net");
 
+/// Run `failable_version_of_artifact_management_thread` and log its error.
+///
+/// The core layout passes the same `upload_flag` the encoder sets after it
+/// closes a clip.
 pub fn artifact_management_thread(
     io : std.Io,
     allocator : std.mem.Allocator,
@@ -16,6 +28,10 @@ pub fn artifact_management_thread(
     };
 }
 
+/// Sleep while `upload_flag` is clear, then upload every pending clip.
+///
+/// Returns when `io` is cancelled. The `error.NotYetImplemented` after the
+/// infinite loop is unreachable.
 pub fn failable_version_of_artifact_management_thread(
     io : std.Io,
     allocator : std.mem.Allocator,

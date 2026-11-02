@@ -1,7 +1,13 @@
-//! Module that manages variables parsed from a file at runtime. 
+//! Runtime settings loaded from `config.zap` in the process working directory.
 //!
-//! In The event that this file is not present, this module will also create the 
-//! file while also setting the defaults I've deemed appropriate.
+//! `establish_config` reads that file once, at startup. When the file is
+//! missing it is created and the defaults in `make_default_config` are stored
+//! both on disk and in the `VALUE_*` globals. Every other module reads those
+//! globals through the `get_*` functions.
+//!
+//! `FileCleanupStrategy` is the policy the cleanup thread applies when
+//! `Videos/` grows. `ConfigSpec` and `ConfigManager` are a separate comptime
+//! sketch; the running client does not consult them.
 const std = @import("std");
 
 //Name of config file
@@ -80,60 +86,79 @@ var VALUE_CLEANUP_STRATEGY : FileCleanupStrategy = undefined;
 var VALUE_UPLOAD_DELAY : f64 = 1.1;
 
 
-//Getters to make the data immutable to consumers of the module. 
-/// Getter to fetch configured video duration
+// Getters. Callers cannot write the globals after `establish_config`.
+
+/// Clip length in seconds. Also the base of `get_upload_delay_milis`.
 pub fn get_config_video_duration() u64 {
     return VALUE_VIDEO_DURATION;
 }
 
+/// V4L2 device path, for example `/dev/video0`.
 pub fn get_camera_hardware_name() [:0]u8 {
     return VALUE_CAMERA_HARDWARE_NAME;
 }
 
+/// Requested capture width in pixels.
 pub fn get_camera_width() u16 {
     return VALUE_VIDEO_WIDTH;
 }
 
+/// Requested capture height in pixels.
 pub fn get_camera_height() u16 {
     return VALUE_VIDEO_HEIGHT;
 }
 
+/// When true, refuse to start if the camera will not accept the requested
+/// width, height, or frame rate.
 pub fn get_crash_on_vid_diff() bool {
     return VALUE_CRASH_ON_VID_DIFF;
 }
 
+/// Requested capture frame rate.
 pub fn get_camera_frame_rate() u16 {
     return VALUE_FRAME_RATE;
 }
 
+/// x264 CRF passed to the encoder. Lower is higher quality.
 pub fn get_crf_value() u8 {
     return VALUE_CRF_VALUE;
 }
 
+/// Directory name under `Videos/ToArchive` and `Videos/Archived`.
 pub fn get_camera_name() [:0]u8 {
     return VALUE_CAMERA_NAME;
 }
 
+/// Seconds added to UTC when naming clips. Negative values are west of UTC.
 pub fn get_utc_offset_seconds() i64 {
     return VALUE_UTC_OFFSET_SECONDS;
 }
 
+/// Host that receives uploaded clips.
 pub fn get_server_address() [:0]u8 {
     return VALUE_SERVER_ADDRESS;
 }
 
+/// TCP port of the upload server.
 pub fn get_server_port() u16 {
     return VALUE_SERVER_PORT;
 }
 
+/// Disk budget, in bytes, consulted by the cleanup strategies that cap storage.
 pub fn get_allocated_memory() u64 {
     return VALUE_MEMORY_ALLOC;
 }
 
+/// Which `FileCleanupStrategy` the cleanup thread runs.
 pub fn get_cleanup_stategy() FileCleanupStrategy {
     return VALUE_CLEANUP_STRATEGY;
 }
 
+/// How long the artifact thread waits between upload passes, in milliseconds.
+///
+/// The file stores `upload delay` as a multiplier of the clip duration.
+/// A multiplier of `0` waits 0 ms. Any other value returns
+/// `1000 * video_duration * multiplier`.
 pub fn get_upload_delay_milis() i64 {
     if (@as(@TypeOf(VALUE_UPLOAD_DELAY), 0) == VALUE_UPLOAD_DELAY) {
         return 0;
@@ -145,7 +170,10 @@ pub fn get_upload_delay_milis() i64 {
 }
 
 
-/// Function to etablish config
+/// Read `config.zap`, or create it with defaults when it is not there.
+///
+/// Must run before any `get_*` call. A malformed file returns an error.
+/// `main` turns that error into a panic.
 pub fn establish_config(io : std.Io) !void {
     if (std.Io.Dir.openFile(std.Io.Dir.cwd(), io, CONFIG_FILE_NAME, .{})) |file| {
         try parse_file(file, io);
@@ -332,7 +360,10 @@ fn make_default_config(io : std.Io) !void {
 
 
 
-/// Define all your config fields in one place
+/// Defaults for a comptime config spec.
+///
+/// Nothing in the running client reads this type. Live settings are the
+/// `VALUE_*` globals filled by `establish_config`.
 pub const ConfigSpec = struct {
     video_duration: u64 = 15,
     camera_hardware_name: []const u8 = "/dev/video0",
@@ -357,6 +388,8 @@ const FieldMapping = struct {
     field_name: []const u8, // or use @tagName / comptime magic
 };
 
+/// Stores one value of `Spec` and exposes a comptime `get`.
+/// The running client uses `establish_config` and the `get_*` functions.
 pub fn ConfigManager(comptime Spec: type) type {
     return struct {
         const Self = @This();

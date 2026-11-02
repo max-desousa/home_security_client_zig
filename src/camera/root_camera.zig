@@ -1,3 +1,11 @@
+//! V4L2 capture device.
+//!
+//! `init` opens the device, checks that it can capture video, and memory-maps
+//! the driver buffers into `frame_metadata`. `infinite_capture` is the camera
+//! thread: it starts streaming, dequeues a filled buffer, and pushes that
+//! buffer's index to the encoder. The encoder sends indexes back when it is
+//! done so this thread can requeue them with `VIDIOC_QBUF`.
+
 pub const Camera = @This();
 
 const std = @import("std");
@@ -5,15 +13,15 @@ const sync = @import("sync_data");
 const v4l = @import("v4l");
 const config = @import("config");
 
+/// One memory-mapped V4L2 buffer and the frame currently stored in it.
 pub const MemoryMappedFrame = struct {
-    //Memory Mapped address on initialization of the camera object
+    /// Address returned by the V4L2 memory map.
     start_address: *anyopaque,
-    //Maximum size allocated to the frame buffer
+    /// Size of the mapped buffer, in bytes.
     max_length: u32,
-    //Number of bytes used for the current frame
+    /// Bytes occupied by the frame currently in this buffer.
     bytes_used: u32 = 0,
-    //Timestamp for the frame to assist encoding
-    //If there is lag, the timestamp should help stretch frames for smoother video
+    /// Capture timestamp. The encoder uses it to pace frames when the camera lags.
     time_stamp: v4l.struct_timeval = std.mem.zeroes(v4l.struct_timeval),
 };
 
@@ -23,19 +31,14 @@ allocator: std.mem.Allocator,
 frame_metadata: []MemoryMappedFrame = &.{},
 
 
-//******************************************************************************
-// Function:    infinite_capture()
-//
-// Description: This is the ultimate caller for taking a camera object and 
-//              infinitely capturing video. This is ultimately the function
-//              that would be your "camera thread". There does need to be an
-//              initialization of the camera first.
-//
-//              Note: this function (really a thread) does require a consumer
-//              of the frames. This function will do nothing to dequeue frames.
-//              There needs to be a consumer - in the current application this
-//              would be the encoder thread. 
-//******************************************************************************
+/// Camera thread. `init` must have succeeded first.
+///
+/// Queues the mapped buffers, starts streaming, and loops:
+/// requeue every index sitting on `frames_to_requeue`, dequeue one captured
+/// frame, then push that buffer index onto `frames_to_encode`.
+///
+/// This thread does not encode and does not free a buffer until the encoder
+/// returns its index. Closing either queue, or an ioctl error, ends the thread.
 pub fn infinite_capture(
     self: *Camera, 
     io : std.Io, 
@@ -97,6 +100,11 @@ pub fn infinite_capture(
 }
 
 
+/// Open `dev_name`, require video capture, and map the driver's buffers.
+///
+/// Returns `error.CameraDeviceNotFound` when the path does not exist and
+/// `error.DeviceDoesNotSupportVideo` when the device is not a capture device.
+/// On any later failure the file descriptor is closed before the error returns.
 pub fn init(dev_name: [:0]const u8, allocator: std.mem.Allocator) !Camera {
     var camera: Camera = .{
         .file_descriptor = null,
@@ -120,6 +128,7 @@ pub fn init(dev_name: [:0]const u8, allocator: std.mem.Allocator) !Camera {
     return camera;
 }
 
+/// Close the device and free the frame-metadata slice.
 pub fn deinit(self: *Camera) void {
     if (self.file_descriptor) |fd| {
         _ = std.c.close(fd);
@@ -438,6 +447,11 @@ fn start_capturing(self: Camera) !void {
     }
 }
 
+/// Dequeue one filled buffer and record its size and timestamp.
+///
+/// Returns the buffer index. The buffer stays checked out until
+/// `infinite_capture` requeues it. `error.BadStructInstance` means `init`
+/// did not leave a file descriptor.
 pub fn capture_single_frame(self: Camera) !?u8 {
     // Rudamentary check that object was initialized. 
     const camera_device = self.file_descriptor orelse return error.BadStructInstance;

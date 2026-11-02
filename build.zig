@@ -4,7 +4,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const number_of_cores = b.option(usize, "number_of_cores", "Number of CPU cores to use for building") orelse std.Thread.getCpuCount() catch 1;
+    const number_of_cores = b.option(usize, "number_of_cores", "Number of CPU cores to use for building") orelse (std.Thread.getCpuCount() catch 1);
 
     const options = b.addOptions();
     options.addOption(usize, "numberOfCores", number_of_cores);
@@ -126,6 +126,11 @@ pub fn build(b: *std.Build) void {
             .{ .name = "sys", .module = mod_sys },
             .{ .name = "camera", .module = mod_camera },
             .{ .name = "coreLayouts", .module = mod_cores },
+            .{ .name = "encoding", .module = mod_encoding },
+            .{ .name = "amh", .module = mod_amh },
+            .{ .name = "net", .module = mod_net },
+            .{ .name = "time", .module = mod_time },
+            .{ .name = "sync_data", .module = mod_sync_data },
         },
     });
 
@@ -144,4 +149,14 @@ pub fn build(b: *std.Build) void {
     run_cmd.step.dependOn(b.getInstallStep());
 
     run_cmd.addPassthruArgs();
+
+    // Same generator `zig std` uses. The page fetches sources.tar, so open it
+    // through a local HTTP server, not as a file:// URL.
+    const install_docs = b.addInstallDirectory(.{
+        .source_dir = exe.getEmittedDocs(),
+        .install_dir = .prefix,
+        .install_subdir = "docs",
+    });
+    const docs_step = b.step("docs", "Generate HTML documentation from doc comments");
+    docs_step.dependOn(&install_docs.step);
 }

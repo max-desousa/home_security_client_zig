@@ -1,7 +1,14 @@
+//! Types shared by the camera thread and the encoder thread.
+//!
+//! `ThreadingErrors` is the cross-thread error set. `CameraData` is a mutexed
+//! ring of V4L2 buffer indexes. `SynchronousData` adds a `sync_error` slot so
+//! one thread can record that the other has failed. The four-core layout does
+//! not use this module; it passes `std.Io.Queue` values instead. The two-core
+//! layout constructs a `SynchronousData` for its upload thread.
+
 const std = @import("std");
 
-//Buffer used by cameras.
-
+/// Failures one worker can report to the other.
 pub const ThreadingErrors = error{
     CameraCouldNotStart,
     CameraCouldNotCaptureFrame,
@@ -26,6 +33,9 @@ pub const ThreadingErrors = error{
     CouldNotRenameFile,
 };
 
+/// Mutexed ring of buffer indexes waiting to be encoded.
+///
+/// Capacity is 32. `push` and `pop` lock `mutex`. `head == tail` means empty.
 pub const CameraData = struct {
     const Self = @This();
     const BUFFER_SIZE = 32;
@@ -43,6 +53,7 @@ pub const CameraData = struct {
     head: usize = 0,
     tail: usize = 0,
 
+    /// Remove the oldest buffer index. Returns `error.Empty` when the ring is empty.
     pub fn pop(self: *Self, io : std.Io) !void {
         try self.mutex.lock(io);
         defer self.mutex.unlock(io);
@@ -53,6 +64,7 @@ pub const CameraData = struct {
         self.free_flags.set(value);
     }
 
+    /// Append `buf_num`. Returns `error.Full` when the ring has no free slot.
     pub fn push(self: *Self, io : std.Io, buf_num: u8) !void {
         try self.mutex.lock(io);
         defer self.mutex.unlock(io);
@@ -64,6 +76,7 @@ pub const CameraData = struct {
         self.buffers_ready_to_encode[self.head] = buf_num;
     }
 
+    /// Oldest index, or `null` when the ring is empty. Does not remove it.
     pub fn get_first(self: *Self, io : std.Io) ?u8 {
         self.mutex.lock(io) catch |inner_err| {
             std.log.debug("Error locking mutex: {any}", .{inner_err});
@@ -79,6 +92,7 @@ pub const CameraData = struct {
 };
 
 
+/// `CameraData` plus a shared error. `sync_error` stays `null` until a worker sets it.
 pub const SynchronousData = struct {
     // shared error state between encoding and camera threads in order for them
     // to inform one another that they've failed. (Ex: We don't want to get

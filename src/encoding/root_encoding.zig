@@ -1,4 +1,10 @@
-// src/encoding/root_encoding.zig
+//! H.264 encode loop backed by libavformat / libavcodec.
+//!
+//! `encoding_thread` is the consumer of the camera thread. It takes buffer
+//! indexes from `frames_to_encode`, writes them into a clip under
+//! `Videos/ToArchive/<camera>/`, and returns each index on `frames_to_requeue`.
+//! A finished clip sets `upload_flag` so the artifact thread will upload it.
+
 const std = @import("std");
 const sync = @import("sync_data");
 const config = @import("config");
@@ -7,12 +13,12 @@ const time = @import("time");
 const sys = @import("sys");
 const camera = @import("camera");
 
-//##############################################################################
-// Function: encoding_thread
-//
-// Description: This is the main entry point for running the endless encoding
-//              loop for the captured frames.
-//##############################################################################
+/// Encode captured frames until the camera queue closes or setup fails.
+///
+/// Finds the H.264 encoder, then loops over time windows from `time`. Each
+/// window becomes one `.ts` file. `frame_data` is the camera's mapped buffers.
+/// After `create_video` returns, `upload_flag` is stored as `true`.
+/// Any failure closes `frames_to_requeue`, which stops the camera thread.
 pub fn encoding_thread(
     io: std.Io,
     allocator : std.mem.Allocator, 

@@ -1,3 +1,14 @@
+//! Default thread layout, used when `-Dnumber_of_cores` is greater than 3.
+//!
+//! Three threads share two queues of V4L2 buffer indexes:
+//! - `encoding.encoding_thread` takes indexes from `frames_to_encode` and
+//!   returns them on `frames_to_requeue`.
+//! - `Camera.infinite_capture` does the opposite.
+//! - `amh.artifact_management_thread` uploads finished clips. The encoder
+//!   sets `Videos_To_Uplaod` when a file is ready.
+//!
+//! This layout does not start `sys.file_cleanup_thread`.
+
 const std = @import("std");
 const Camera = @import("camera");
 const encoding = @import("encoding");
@@ -5,6 +16,8 @@ const amh = @import("amh");
 
 var Videos_To_Uplaod : std.atomic.Value(bool) = .init(false);
 
+/// Spawn the encoder, camera, and artifact threads on `io` and return.
+/// The `defer group.await` waits for them before `start` actually returns.
 pub fn start(
     io : std.Io,
     allocator : std.mem.Allocator,

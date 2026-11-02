@@ -1,3 +1,15 @@
+//! Security camera client.
+//!
+//! Startup order:
+//! 1. Load `config.zap`, creating it with defaults when it is missing (`config`).
+//! 2. Create `Videos/ToArchive/<camera>` and `Videos/Archived/<camera>` (`sys`).
+//! 3. Open the V4L2 device and map its buffers (`camera`).
+//! 4. Run the thread layout selected by `-Dnumber_of_cores` (`coreLayouts`).
+//!
+//! The layout that actually runs on a machine with more than three cores is
+//! `four_core_layout`: a capture thread, an H.264 encode thread, and an
+//! upload thread, passing V4L2 buffer indexes through two queues.
+
 const std = @import("std");
 const builtin = @import("builtin");
 const config = @import("config");
@@ -5,8 +17,16 @@ const sys = @import("sys");
 const camera = @import("camera");
 const coreLayouts = @import("coreLayouts");
 
+// Keeps src/root.zig in the compilation so `zig build docs` rebuilds when
+// the generated front page changes.
+comptime {
+    _ = @import("root.zig");
+}
+
 var DEBUG_ALLOCATOR : std.heap.DebugAllocator(.{}) = .init;
 
+/// Load config, prepare the archive directories, open the camera, and run
+/// the core layout until the process exits.
 pub fn main() !void {
     const allocator : std.mem.Allocator = comptime switch (builtin.mode) {
         .debug => DEBUG_ALLOCATOR.allocator(),

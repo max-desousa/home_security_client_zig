@@ -1,16 +1,21 @@
+//! Clip filenames are time windows in the configured local offset.
+//!
+//! `get_windowed_time_for_filename_string` allocates `YYYYMMDD_HHMM_SS_ss`
+//! for a clip shorter than one minute: `SS` is the start second and `ss` is
+//! the end second. `is_time_in_current_window` parses that stamp back out of
+//! a path so the encoder can decide whether to keep writing the open file.
+//! `old_get_windowed_time_for_filename_string` is the earlier hour-and-minute
+//! window (`YYYYMMDD_HHMM_HHMM`) and is not called by the encoder.
+
 const std = @import("std");
 const config = @import("config");
 
 const DAY_IN_SECONDS : u64 = 86_400;
 
-//##############################################################################
-//
-// Function: get_current_epoch_sec()
-//
-// Description: Use this function to get the current epoch seconds as a u64. It
-//              uses the posix library.
-//
-//##############################################################################
+/// Current epoch seconds plus `offset` seconds.
+///
+/// `offset` is `config.get_utc_offset_seconds` at the call sites. A negative
+/// offset subtracts.
 pub fn get_current_epoch_sec(io : std.Io, offset : i64) !u64 {
     const raw_epoch_seconds = std.Io.Clock.now(.real, io).toSeconds();
     const epoch : u64 = @intCast(raw_epoch_seconds);
@@ -27,28 +32,10 @@ pub fn get_current_epoch_sec(io : std.Io, offset : i64) !u64 {
 }
 
 
-//##############################################################################
-//
-// Funtion: get_windowed_time_for_filename_string
-//
-// Description: This function returns a string - WHICH MUST BE FREED
-//              (allocator.free()) for a window of time that will be used in
-//              the filename for the webcam data. 
-//              
-//              Output format will be "[camera]-YYYYMMDD_HHMM_hhmm". This will
-//              append to any name for the camera and will be a somewhat
-//              convenient way of knowing what time frame the data on the
-//              webcam is for.
-//
-//              Note! This function is currently marked "old". We'll see if it
-//              gets weaved back into the project, but to minimize data loss
-//              (if the camera was attacked) - we need smaller files uploaded
-//              to the server. This means the target 10 minute window is
-//              impractical. A similar function will be made for generating a
-//              file name schema that's for files that will be under 1 minute
-//              in duration. 
-//
-//##############################################################################
+/// Allocate a `YYYYMMDD_HHMM_HHMM` window. The caller frees it.
+///
+/// The last four digits are the end hour and minute. Windows that cross
+/// midnight are cut off at 24:00. Not used by `encoding_thread`.
 pub fn old_get_windowed_time_for_filename_string(
     allocator: std.mem.Allocator,
     io : std.Io, 
@@ -153,24 +140,12 @@ pub fn old_get_windowed_time_for_filename_string(
 }
 
 
-//##############################################################################
-//
-// Funtion: get_windowed_time_for_filename_string
-//
-// Description: This function returns a string - WHICH MUST BE FREED
-//              (allocator.free()) for a window of time that will be used in
-//              the filename for the webcam data. 
-//              
-//              Output format will be "[camera]-YYYYMMDD_HHMM_SS_ss". This will
-//              append to any name for the camera and will be a somewhat
-//              convenient way of knowing what time frame the data on the
-//              webcam is for.
-//
-//              In this version SS is the starting seconds within the clock and 
-//              ss is the endcing seconds. (this is designed to be sub-minute
-//              configuration)
-//
-//##############################################################################
+/// Allocate a `YYYYMMDD_HHMM_SS_ss` window for a sub-minute clip. The caller frees it.
+///
+/// `duration` is the window length in seconds. Longer than 60 seconds returns
+/// `error.TooLongDurationWhenUsingSubMinuteArchitecture`. Longer than a day
+/// returns `error.InvalidTimeWindow`. The camera name is not part of this string;
+/// the encoder adds it when it builds the path.
 pub fn get_windowed_time_for_filename_string(
     allocator: std.mem.Allocator,
     io : std.Io, 
@@ -223,20 +198,10 @@ pub fn get_windowed_time_for_filename_string(
 }
 
 
-//##############################################################################
-//
-// Function:
-//
-// Description: This is a function that takes the string - intended for the
-//              filename for a recording - that represents a window of time and
-//              determins if the current time is within that window.
-//              
-//              The most common (intended) use case for this function is to
-//              determine if a new recording file should be started based on
-//              the current time and the window of time represented by the
-//              filename.
-//
-//##############################################################################
+/// Whether the current local time is still inside the window encoded in `file_name`.
+///
+/// The encoder calls this to decide if the open clip should stay open.
+/// The stamp is the portion of the path between the two `.` characters.
 pub fn is_time_in_current_window(io : std.Io, file_name: []const u8) !bool {
 
     const string_with_extension_cut, _ = std.mem.cutLast(u8, file_name, ".") orelse return error.BadPathDueToNoPeriod1;

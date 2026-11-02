@@ -1,9 +1,23 @@
+//! HTTP upload of finished clips.
+//!
+//! `upload_all_possible_videos` walks `Videos/ToArchive`, POSTs each regular
+//! file to `config.get_server_address`:`config.get_server_port`, and on
+//! success moves that file to `Videos/Archived`. A failed POST is logged and
+//! skipped so the cleanup thread, not this walk, decides whether the clip is
+//! dropped. The walk panics if the archive directory cannot be opened.
+
 const std = @import("std");
 const sync_data = @import("sync_data");
 const debug = @import("debug");
 const config = @import("config");
 const sys = @import("sys");
 
+/// Upload every file directly under `Videos/ToArchive` and move successes
+/// into `Videos/Archived`.
+///
+/// Paths containing more than one `.` are skipped. A failed upload logs a
+/// warning and continues with the next file. A failed move after a successful
+/// upload panics.
 pub fn upload_all_possible_videos(
     io : std.Io,
     allocator : std.mem.Allocator,

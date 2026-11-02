@@ -1,3 +1,11 @@
+//! Thread layout for `-Dnumber_of_cores=2`.
+//!
+//! Spawns the encoder, the camera thread, `net.upload_thread`, and, unless
+//! the cleanup strategy is `NoDeletions`, `sys.file_cleanup_thread`.
+//! `upload_thread` is not a declaration in the net module, and the call to
+//! `encoding_thread` omits `upload_flag`, so this file does not type-check.
+//! It is compiled only when the build option is exactly 2.
+
 const std = @import("std");
 const Camera = @import("camera");
 const encoding = @import("encoding");
@@ -6,6 +14,7 @@ const config = @import("config");
 const sync = @import("sync_data");
 const sys = @import("sys");
 
+/// Spawn the two-core threads. See the module note for why this does not build.
 pub fn start(
     io : std.Io,
     allocator : std.mem.Allocator,

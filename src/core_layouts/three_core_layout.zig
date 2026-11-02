@@ -1,6 +1,9 @@
+//! Thread layout for `-Dnumber_of_cores=3`. Not implemented.
+
 const std = @import("std");
 const Camera = @import("camera");
 
+/// Placeholder. Returns without starting threads.
 pub fn start(
     io : std.Io,
     allocator : std.mem.Allocator,

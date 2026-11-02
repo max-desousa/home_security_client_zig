@@ -1,14 +1,32 @@
+//! On-disk layout for clips, and the thread that deletes them.
+//!
+//! Everything lives under `Videos/`:
+//! - `Videos/ToArchive/<camera>/` holds clips the encoder just closed.
+//! - `Videos/Archived/<camera>/` holds clips the upload thread moved after a
+//!   successful POST.
+//!
+//! `establish_directories` creates both trees at startup and deletes hidden
+//! files left behind by an interrupted encode. `file_cleanup_thread` then
+//! applies `config.FileCleanupStrategy` in a loop. The four-core layout does
+//! not start that thread; the two-core layout does, unless the strategy is
+//! `NoDeletions`.
+
 const std = @import("std");
 const config = @import("config");
 const flags = @import("flags");
 const net = @import("net");
 
+/// Directory name, under `Videos/`, for clips waiting to be uploaded.
 pub const FOLDER_FOR_FILES_TO_ARCHIVE = "ToArchive";
+/// Directory name, under `Videos/`, for clips that have been uploaded.
 pub const FOLDER_FOR_ALREADY_ARCHIVED_FILES = "Archived";
+/// Top-level directory for both trees. Relative to the process working directory.
 pub const MAIN_VIDEO_FOLDER = "Videos";
 //pub const PATH_TO_TO_ARCHIVE_DIR = MAIN_VIDEO_FOLDER ++ std.fs.path.sep ++ FOLDER_FOR_FILES_TO_ARCHIVE;
 //pub const PATH_TO_ARCHIVED_DIR = MAIN_VIDEO_FOLDER ++ std.fs.path.sep ++ FOLDER_FOR_ALREADY_ARCHIVED_FILES;
+/// `Videos/ToArchive`, without the camera directory.
 pub const PATH_TO_TO_ARCHIVE_DIR = MAIN_VIDEO_FOLDER ++ "/" ++ FOLDER_FOR_FILES_TO_ARCHIVE;
+/// `Videos/Archived`, without the camera directory.
 pub const PATH_TO_ARCHIVED_DIR = MAIN_VIDEO_FOLDER ++ "/" ++ FOLDER_FOR_ALREADY_ARCHIVED_FILES;
 
 const FileInfo = struct {
@@ -19,11 +37,11 @@ const FileInfo = struct {
 
 
 
-//******************************************************************************
-// Function: 
-//
-// Description: 
-//******************************************************************************
+/// Apply `config.get_cleanup_stategy` forever.
+///
+/// Each pass dispatches to the matching delete routine. `NoDeletions` is not
+/// handled here (`unreachable`); callers skip starting the thread in that case.
+/// An error from a pass is logged and the thread returns.
 pub fn file_cleanup_thread(
     allocator : std.mem.Allocator,
     io : std.Io,
@@ -171,11 +189,11 @@ fn delete_archived_files(
 //}
 
 
-//******************************************************************************
-// Function: 
-//
-// Description: 
-//******************************************************************************
+/// Create `Videos/ToArchive/<camera>` and `Videos/Archived/<camera>`.
+///
+/// `<camera>` is `config.get_camera_name`. Also deletes hidden files under
+/// `Videos/`. Those are partial clips left by a process that died mid-write.
+/// Call this once, after config is loaded and before capture starts.
 pub fn establish_directories(
     io : std.Io,
     allocator : std.mem.Allocator,
@@ -264,11 +282,7 @@ fn delete_hidden_files(
 }
 
 
-//******************************************************************************
-// Function: 
-//
-// Description: 
-//******************************************************************************
+/// Write `Videos/ToArchive/<camera_name>` into `buffer` and return that slice.
 pub fn get_to_archive_path_for_camera(
     buffer : []u8,
     camera_name : []u8,
@@ -287,11 +301,7 @@ pub fn get_to_archive_path_for_camera(
 }
 
 
-//******************************************************************************
-// Function: 
-//
-// Description: 
-//******************************************************************************
+/// `get_to_archive_path_for_camera` using `config.get_camera_name`.
 pub fn get_to_archive_path(
     buffer : []u8,
 ) ![]u8 {
@@ -299,11 +309,7 @@ pub fn get_to_archive_path(
 }
 
 
-//******************************************************************************
-// Function: 
-//
-// Description: 
-//******************************************************************************
+/// Write `Videos/Archived/<camera_name>` into `buffer` and return that slice.
 pub fn get_archived_path_for_camera(
     buffer : []u8,
     camera_name : []u8,
@@ -322,11 +328,7 @@ pub fn get_archived_path_for_camera(
 }
 
 
-//******************************************************************************
-// Function: 
-//
-// Description: 
-//******************************************************************************
+/// `get_archived_path_for_camera` using `config.get_camera_name`.
 pub fn get_archived_path(
     buffer : []u8,
 ) ![]u8 {
