@@ -2,8 +2,9 @@ const std = @import("std");
 const builtin = @import("builtin");
 const config = @import("config");
 const sys = @import("sys");
-const camera = @import("camera");
-const coreLayouts = @import("coreLayouts");
+const Camera = @import("camera");
+const encoding = @import("encoding");
+const amh = @import("amh");
 
 var DEBUG_ALLOCATOR : std.heap.DebugAllocator(.{}) = .init;
 
@@ -35,8 +36,30 @@ pub fn main() !void {
 
     // Try to create camera object (making sure system works) before starting 
     // multithreaded portion.
-    var camera_obj = try camera.init(config.get_camera_hardware_name(), allocator);
+    var camera_obj = try Camera.init(config.get_camera_hardware_name(), allocator);
     defer camera_obj.deinit();
 
-    try coreLayouts.startSecurityCamera(io, allocator, &camera_obj);
+    try startSecurityCamera(io, allocator, &camera_obj);
+}
+
+
+///
+fn startSecurityCamera(
+    io : std.Io,
+    allocator : std.mem.Allocator,
+    camera : *Camera,
+) !void {
+    var group : std.Io.Group = .init;
+    defer group.await(io) catch {};
+
+    var buffer_for_frames_to_encode : [32]usize = undefined;
+    var frames_to_encode : std.Io.Queue(usize) = .init(&buffer_for_frames_to_encode);
+    var buffer_for_frames_to_requeue : [32]usize = undefined;
+    var frames_to_requeue : std.Io.Queue(usize) = .init(&buffer_for_frames_to_requeue);
+
+    var Videos_To_Uplaod : std.atomic.Value(bool) = .init(false);
+
+    try group.concurrent(io, encoding.encoding_thread, .{ io, allocator, camera.frame_metadata, &frames_to_encode, &frames_to_requeue , &Videos_To_Uplaod });
+    try group.concurrent(io, Camera.infinite_capture, .{camera, io, &frames_to_encode, &frames_to_requeue });
+    try group.concurrent(io, amh.artifact_management_thread, .{ io, allocator, &Videos_To_Uplaod });
 }
