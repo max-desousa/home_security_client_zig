@@ -107,8 +107,8 @@ pub fn build(b: *std.Build) void {
             .{ .name = "config", .module = mod_config },
             .{ .name = "sys", .module = mod_sys },
             .{ .name = "camera", .module = mod_camera },
-            .{ .name = "amh", .module = mod_amh },
             .{ .name = "encoding", .module = mod_encoding },
+            .{ .name = "amh", .module = mod_amh },
         },
     });
 
